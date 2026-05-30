@@ -1,0 +1,75 @@
+// Collect system state and store it in a compact binary frame.
+// Usage:
+//   state-collector examples/binary.rn
+//
+// Note: the host currently exposes sc::write(String), so this script stores
+// the binary payload as base64 text in state.bin.b64.
+
+use process::{Command, Stdio};
+
+async fn run_raw(cmd, args) {
+    let command = Command::new(cmd);
+    command.args(args);
+    command.stdout(Stdio::piped());
+    command.stderr(Stdio::piped());
+
+    match command.spawn() {
+        Ok(child) => match child.wait_with_output().await {
+            Ok(output) => match String::from_utf8(output.stdout) {
+                Ok(stdout) => {
+                    if stdout.trim().is_empty() {
+                        match String::from_utf8(output.stderr) {
+                            Ok(stderr) => stderr,
+                            Err(error) => `[error: ${error}]`,
+                        }
+                    } else {
+                        stdout
+                    }
+                }
+                Err(error) => `[error: ${error}]`,
+            },
+            Err(error) => `[error: ${error}]`,
+        },
+        Err(error) => `[error: ${error}]`,
+    }
+}
+
+pub async fn collect() {
+    sc::log(`starting binary collection at ${sc::timestamp()}`);
+
+    let probes = [
+        #{"name": "hostname", "cmd": "hostname", "args": []},
+        #{"name": "uptime", "cmd": "uptime", "args": []},
+        #{"name": "memory", "cmd": "free", "args": ["-h"]},
+        #{"name": "root_fs", "cmd": "df", "args": ["-h", "/"]},
+        #{"name": "ip_brief", "cmd": "ip", "args": ["-brief", "addr"]},
+        #{"name": "failed_units", "cmd": "systemctl", "args": ["--failed", "--no-pager", "--no-legend"]},
+    ];
+
+    let entries = [];
+
+    for probe in probes {
+        sc::log(`  collecting ${probe.name}...`);
+        entries.push(#{
+            "name": probe.name,
+            "command": probe.cmd,
+            "args": probe.args,
+            "output": run_raw(probe.cmd, probe.args).await,
+        });
+    }
+
+    let payload = #{
+        "format": "state-collector-bin-v1",
+        "generated_at": sc::timestamp(),
+        "collector_version": sc::version(),
+        "entries": entries,
+    };
+
+    let json_bytes = json::to_bytes(payload)?;
+
+    // Binary payload serialized as raw bytes, then base64-wrapped for sc::write.
+    let encoded = base64::encode(json_bytes);
+    sc::write("state.bin.b64", encoded)?;
+
+    sc::log("binary collection complete.");
+}

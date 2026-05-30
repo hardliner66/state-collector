@@ -2,6 +2,7 @@
 name = "state-collector"
 version = "0.1.0"
 edition = "2024"
+default-run = "state-collector"
 
 [dependencies]
 anyhow = "1.0.102"

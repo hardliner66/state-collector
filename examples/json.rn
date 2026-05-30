@@ -1,0 +1,78 @@
+// Collect system state and store everything in one JSON file.
+// Usage:
+//   state-collector examples/json.rn
+
+use process::{Command, Stdio};
+
+async fn run_raw(cmd, args) {
+    let command = Command::new(cmd);
+    command.args(args);
+    command.stdout(Stdio::piped());
+    command.stderr(Stdio::piped());
+
+    match command.spawn() {
+        Ok(child) => match child.wait_with_output().await {
+            Ok(output) => match String::from_utf8(output.stdout) {
+                Ok(stdout) => {
+                    if stdout.trim().is_empty() {
+                        match String::from_utf8(output.stderr) {
+                            Ok(stderr) => stderr,
+                            Err(error) => `[error: ${error}]`,
+                        }
+                    } else {
+                        stdout
+                    }
+                }
+                Err(error) => `[error: ${error}]`,
+            },
+            Err(error) => `[error: ${error}]`,
+        },
+        Err(error) => `[error: ${error}]`,
+    }
+}
+
+pub async fn collect() {
+    sc::log(`starting JSON collection at ${sc::timestamp()}`);
+
+    let entries = [];
+
+    let probes = [
+        #{"name": "uname", "cmd": "uname", "args": ["-a"]},
+        #{"name": "hostname", "cmd": "hostname", "args": []},
+        #{"name": "os_release", "cmd": "cat", "args": ["/etc/os-release"]},
+        #{"name": "uptime", "cmd": "uptime", "args": []},
+        #{"name": "memory", "cmd": "free", "args": ["-h"]},
+        #{"name": "root_fs", "cmd": "df", "args": ["-h", "/"]},
+        #{"name": "processes", "cmd": "ps", "args": ["aux"]},
+        #{"name": "ip_addr", "cmd": "ip", "args": ["addr"]},
+        #{"name": "ip_route", "cmd": "ip", "args": ["route"]},
+        #{"name": "services", "cmd": "systemctl", "args": ["list-units", "--type=service", "--all", "--no-pager"]},
+        #{"name": "failed_units", "cmd": "systemctl", "args": ["--failed", "--no-pager", "--no-legend"]},
+        #{"name": "kernel_warn_err", "cmd": "dmesg", "args": ["-T", "--level=err,warn"]},
+    ];
+
+    for probe in probes {
+        sc::log(`  collecting ${probe.name}...`);
+
+        let output = run_raw(probe.cmd, probe.args).await;
+        entries.push(#{
+            "name": probe.name,
+            "command": probe.cmd,
+            "args": probe.args,
+            "output": output,
+        });
+    }
+
+    let payload = #{
+        "format": "state-collector-json-v1",
+        "generated_at": sc::timestamp(),
+        "collector_version": sc::version(),
+        "outdir": sc::outdir(),
+        "entries": entries,
+    };
+
+    let json_text = json::to_string(payload)?;
+    sc::write("state.json", json_text)?;
+
+    sc::log("JSON collection complete.");
+}

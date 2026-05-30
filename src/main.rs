@@ -29,47 +29,6 @@ fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
-// /// Run a shell command and return its stdout (or stderr if stdout is empty),
-// /// prefixed with a `=== cmd args ===` header.  Never fails — errors become
-// /// part of the returned string so scripts stay simple.
-// #[rune::function]
-// fn run(cmd: String, args: Vec<String>) -> String {
-//     let header = if args.is_empty() {
-//         format!("=== {cmd} ===\n")
-//     } else {
-//         format!("=== {cmd} {} ===\n", args.join(" "))
-//     };
-//     match std::process::Command::new(&cmd).args(&args).output() {
-//         Ok(out) => {
-//             let stdout = String::from_utf8_lossy(&out.stdout);
-//             let text = if stdout.trim().is_empty() {
-//                 String::from_utf8_lossy(&out.stderr).into_owned()
-//             } else {
-//                 stdout.into_owned()
-//             };
-//             format!("{header}{text}\n")
-//         }
-//         Err(e) => format!("{header}[error: {e}]\n\n"),
-//     }
-// }
-
-// /// Run a shell command and return raw stdout (or stderr if stdout is empty).
-// /// Unlike `run`, no header is prepended — useful for extracting specific values.
-// #[rune::function]
-// fn run_raw(cmd: String, args: Vec<String>) -> String {
-//     match std::process::Command::new(&cmd).args(&args).output() {
-//         Ok(out) => {
-//             let stdout = String::from_utf8_lossy(&out.stdout);
-//             if stdout.trim().is_empty() {
-//                 String::from_utf8_lossy(&out.stderr).into_owned()
-//             } else {
-//                 stdout.into_owned()
-//             }
-//         }
-//         Err(e) => format!("[error: {e}]"),
-//     }
-// }
-
 /// Write `content` to `path` relative to the output directory.
 /// Parent directories are created automatically.
 #[rune::function]
@@ -109,8 +68,6 @@ fn timestamp() -> String {
 pub fn module() -> Result<Module, ContextError> {
     let mut m = Module::with_item(["sc"])?;
     m.function_meta(version)?;
-    // m.function_meta(run)?;
-    // m.function_meta(run_raw)?;
     m.function_meta(write)?;
     m.function_meta(log)?;
     m.function_meta(outdir)?;
@@ -157,7 +114,8 @@ async fn main() -> anyhow::Result<()> {
     let runtime = Arc::new(context.runtime()?);
     let mut vm = Vm::new(runtime, unit);
 
-    vm.async_call(rune::Hash::type_hash(["collect"]), ()).await?;
+    vm.async_call(rune::Hash::type_hash(["collect"]), ())
+        .await?;
 
     // Archive everything into a .sc file
     let default_output = std::env::current_dir()
