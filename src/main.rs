@@ -4,6 +4,7 @@ use std::sync::{Arc, OnceLock};
 use anyhow::Context;
 use chrono::Local;
 use clap::Parser;
+use postcard;
 use rune::{
     ContextError, Diagnostics, Module, Source, Sources, Vm,
     runtime::Bytes,
@@ -41,6 +42,13 @@ fn write(path: String, content: String) -> Result<(), anyhow::Error> {
     }
     std::fs::write(&full, content)?;
     Ok(())
+}
+
+/// Serialize a Rune value to postcard binary encoding.
+#[rune::function]
+fn to_postcard_bytes(value: rune::runtime::Value) -> Result<Bytes, anyhow::Error> {
+    let raw = postcard::to_allocvec(&value)?;
+    Ok(Bytes::from_slice(raw).map_err(|e| anyhow::anyhow!("{e}"))?)
 }
 
 /// Write binary `content` to `path` relative to the output directory.
@@ -83,6 +91,7 @@ pub fn module() -> Result<Module, ContextError> {
     let mut m = Module::with_item(["sc"])?;
     m.function_meta(version)?;
     m.function_meta(write)?;
+    m.function_meta(to_postcard_bytes)?;
     m.function_meta(write_bytes)?;
     m.function_meta(log)?;
     m.function_meta(outdir)?;

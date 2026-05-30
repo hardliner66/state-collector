@@ -241,7 +241,7 @@ pub async fn collect() {
     sc::log("  collecting structured sections...");
     let payload = build_payload().await;
 
-    let bytes = json::to_bytes(payload)?;
+    let bytes = sc::to_postcard_bytes(payload)?;
     sc::write_bytes("state.bin", bytes)?;
 
     sc::log("binary collection complete.");
