@@ -1,0 +1,237 @@
+// Collect system state from the local device.
+// Usage:
+//   state-collector                                  # use built-in script
+//   state-collector examples/basic.rn                # explicit script path
+//   state-collector --output /tmp/snapshot.sc        # custom output path
+
+pub fn collect() {
+    sc::log(`starting collection at ${sc::timestamp()}`);
+
+    collect_resources();
+    collect_sysinfo();
+    collect_hardware();
+    collect_services();
+    collect_systemd_status();
+    collect_logs();
+    collect_kernel_logs();
+    collect_processes();
+    collect_network();
+    collect_wifi();
+    collect_ports();
+    collect_filesystems();
+    collect_summary();
+
+    sc::log("done.");
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+// Return the first whitespace-delimited field of a line.
+fn first_field(line) {
+    for part in line.split(" ") {
+        if !part.is_empty() {
+            return part;
+        }
+    }
+    ""
+}
+
+// Build the list of units to collect logs for:
+fn log_units() {
+    let units = ["NetworkManager.service", "sshd@.service"];
+
+    let output = sc::run_raw("systemctl", [
+        "list-units", "--type=service", "--all",
+        "--plain", "--no-legend", "--no-pager",
+    ]);
+
+    for line in output.split("\n") {
+        let line = line.trim();
+        if line.is_empty() { continue; }
+        let unit = first_field(line);
+
+        // Index-based search to avoid consuming `units` with a for loop.
+        let found = false;
+        let i = 0;
+        while i < units.len() {
+            if units[i] == unit {
+                found = true;
+                break;
+            }
+            i += 1;
+        }
+        if !found {
+            units.push(unit);
+        }
+    }
+
+    units
+}
+
+// ── Collectors ───────────────────────────────────────────────────────────────
+
+fn collect_resources() {
+    sc::log("  resources...");
+    let buf = sc::run("uptime", [])
+        + sc::run("free", ["-h"])
+        + sc::run("df", ["-h", "/"]);
+    sc::write("resources.txt", buf)?;
+}
+
+fn collect_sysinfo() {
+    sc::log("  sysinfo...");
+    let buf = sc::run("uname", ["-a"])
+        + sc::run("hostnamectl", [])
+        + sc::run("cat", ["/etc/os-release"])
+        + sc::run("uptime", [])
+        + sc::run("timedatectl", [])
+        + sc::run("locale", []);
+    sc::write("sysinfo.txt", buf)?;
+}
+
+fn collect_hardware() {
+    sc::log("  hardware...");
+    let buf = sc::run("free", ["-h"])
+        + sc::run("lsblk", ["-f"])
+        + sc::run("blkid", [])
+        + sc::run("lspci", [])
+        + sc::run("lsusb", []);
+    sc::write("hardware.txt", buf)?;
+}
+
+fn collect_services() {
+    sc::log("  services...");
+    let buf = sc::run("systemctl", [
+        "list-units", "--type=service", "--all", "--no-pager",
+    ]);
+    sc::write("services.txt", buf)?;
+}
+
+fn collect_systemd_status() {
+    sc::log("  systemd status...");
+    let buf = sc::run("systemctl", ["--failed"])
+        + sc::run("systemctl", ["list-units", "--state=failed"])
+        + sc::run("systemctl", ["list-timers", "--all"])
+        + sc::run("systemctl", ["list-jobs"]);
+    sc::write("systemd_status.txt", buf)?;
+}
+
+fn collect_logs() {
+    sc::log("  logs...");
+    let units = log_units();
+    sc::log(`  collecting ${units.len()} units`);
+
+    for unit in units {
+        // Compute filename before `unit` is consumed by the args array in run().
+        let filename = unit.replace("/", "_").replace("*", "");
+        let output = sc::run("journalctl", ["-n", "500", "--no-pager", "-u", unit]);
+        sc::write(`logs/${filename}.log`, output)?;
+    }
+}
+
+fn collect_kernel_logs() {
+    sc::log("  kernel logs...");
+    let buf = sc::run("dmesg", ["-T", "--level=err,warn"])
+        + sc::run("journalctl", ["-k", "-n", "500", "--no-pager"])
+        + sc::run("journalctl", ["-b", "-n", "1000", "--no-pager"])
+        + sc::run("journalctl", ["-p", "warning..alert", "-n", "1000", "--no-pager"]);
+    sc::write("kernel_logs.txt", buf)?;
+}
+
+fn collect_processes() {
+    sc::log("  processes...");
+    sc::write("processes.txt", sc::run("ps", ["aux"]))?;
+}
+
+fn collect_network() {
+    sc::log("  network...");
+    let buf = sc::run("ip", ["addr"])
+        + sc::run("ip", ["route"])
+        + sc::run("ip", ["rule"])
+        + sc::run("resolvectl", ["status"])
+        + sc::run("cat", ["/etc/resolv.conf"]);
+    sc::write("network.txt", buf)?;
+}
+
+fn collect_wifi() {
+    sc::log("  wifi...");
+    let out = sc::run("nmcli", ["dev", "wifi"]);
+    if !out.contains("[error:") {
+        sc::write("wifi.txt", out)?;
+    }
+}
+
+fn collect_ports() {
+    sc::log("  ports...");
+    let out = sc::run("netstat", ["-an"]);
+    if !out.contains("[error:") {
+        sc::write("ports.txt", out)?;
+    }
+}
+
+fn collect_filesystems() {
+    sc::log("  filesystems...");
+    let buf = sc::run("mount", [])
+        + sc::run("findmnt", [])
+        + sc::run("lsblk", [])
+        + sc::run("df", ["-h"])
+        + sc::run("df", ["-ih"])
+        + sc::run("du", ["-sh", "/var/log", "/tmp"])
+        + sc::run("du", ["-h", "/media/card"]);
+    sc::write("filesystems.txt", buf)?;
+}
+
+fn collect_summary() {
+    sc::log("  summary...");
+
+    // Use run_raw for targeted queries so we get clean values without headers.
+    let hostname = sc::run_raw("hostname", []).trim();
+
+    let os_name = "";
+    for line in sc::run_raw("cat", ["/etc/os-release"]).split("\n") {
+        if line.starts_with("PRETTY_NAME=") {
+            os_name = line.replace("PRETTY_NAME=", "").replace("\"", "").trim();
+            break;
+        }
+    }
+
+    let uptime = sc::run_raw("uptime", []).trim();
+    let failed = sc::run_raw("systemctl", ["--failed", "--no-legend", "--no-pager"]).trim();
+    let ip_brief = sc::run_raw("ip", ["-brief", "addr"]);
+
+    let buf = "System State Dump\n";
+    buf += `Collected: ${sc::timestamp()}\n\n`;
+    buf += `Hostname:  ${hostname}\n`;
+    buf += `OS:        ${os_name}\n`;
+    buf += `Uptime:    ${uptime}\n`;
+    buf += "\nRESOURCES\n---------\n";
+    buf += sc::run_raw("uptime", []);
+    buf += "\n";
+    buf += sc::run_raw("free", ["-h"]);
+    buf += "\n";
+    buf += sc::run_raw("df", ["-h", "/"]);
+    buf += "\nFAILED UNITS\n------------\n";
+    if failed.is_empty() {
+        buf += "(none)\n";
+    } else {
+        buf += failed;
+        buf += "\n";
+    }
+    buf += "\nNETWORK\n-------\n";
+    buf += ip_brief;
+    buf += "\nFILES\n-----\n";
+    buf += "  resources.txt       uptime, free, df /\n";
+    buf += "  sysinfo.txt         uname, hostnamectl, OS release, uptime, timezone, locale\n";
+    buf += "  hardware.txt        free, lsblk, blkid, lspci, lsusb\n";
+    buf += "  services.txt        all systemd services\n";
+    buf += "  systemd_status.txt  failed units, timers, active jobs\n";
+    buf += "  kernel_logs.txt     dmesg (err/warn), journal kernel+boot+warning logs\n";
+    buf += "  processes.txt       ps aux\n";
+    buf += "  network.txt         ip addr/route/rule, resolvectl, resolv.conf\n";
+    buf += "  wifi.txt            nmcli wifi (if available)\n";
+    buf += "  ports.txt           netstat -an (if available)\n";
+    buf += "  filesystems.txt     mount, findmnt, lsblk, df, du\n";
+    buf += "  logs/               per-service journal logs (500 lines each)\n";
+
+    sc::write("summary.txt", buf)?;
+}

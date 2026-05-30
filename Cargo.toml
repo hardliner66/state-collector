@@ -1,0 +1,13 @@
+[package]
+name = "state-collector"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.102"
+chrono = { version = "0.4.44", features = ["clock"] }
+clap = { version = "4.6.1", features = ["derive"] }
+flate2 = "1.1.9"
+rune = "0.14.2"
+rune-modules = { version = "0.14.2", features = ["full"] }
+tar = "0.4.46"
