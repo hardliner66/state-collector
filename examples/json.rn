@@ -31,37 +31,159 @@ async fn run_raw(cmd, args) {
     }
 }
 
+fn first_field(line) {
+    for part in line.split(" ") {
+        if !part.is_empty() {
+            return part;
+        }
+    }
+    ""
+}
+
+async fn log_units() {
+    let units = ["NetworkManager.service", "sshd@.service"];
+
+    let output = run_raw("systemctl", [
+        "list-units", "--type=service", "--all",
+        "--plain", "--no-legend", "--no-pager",
+    ]).await;
+
+    for line in output.split("\n") {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        let unit = first_field(line);
+        let found = false;
+        let i = 0;
+
+        while i < units.len() {
+            if units[i] == unit {
+                found = true;
+                break;
+            }
+            i += 1;
+        }
+
+        if !found {
+            units.push(unit);
+        }
+    }
+
+    units
+}
+
+async fn push(entries, section, cmd, args) {
+    entries.push(#{
+        "section": section,
+        "command": cmd,
+        "args": args,
+        "output": run_raw(cmd, args).await,
+    });
+}
+
 pub async fn collect() {
     sc::log(`starting JSON collection at ${sc::timestamp()}`);
 
     let entries = [];
 
-    let probes = [
-        #{"name": "uname", "cmd": "uname", "args": ["-a"]},
-        #{"name": "hostname", "cmd": "hostname", "args": []},
-        #{"name": "os_release", "cmd": "cat", "args": ["/etc/os-release"]},
-        #{"name": "uptime", "cmd": "uptime", "args": []},
-        #{"name": "memory", "cmd": "free", "args": ["-h"]},
-        #{"name": "root_fs", "cmd": "df", "args": ["-h", "/"]},
-        #{"name": "processes", "cmd": "ps", "args": ["aux"]},
-        #{"name": "ip_addr", "cmd": "ip", "args": ["addr"]},
-        #{"name": "ip_route", "cmd": "ip", "args": ["route"]},
-        #{"name": "services", "cmd": "systemctl", "args": ["list-units", "--type=service", "--all", "--no-pager"]},
-        #{"name": "failed_units", "cmd": "systemctl", "args": ["--failed", "--no-pager", "--no-legend"]},
-        #{"name": "kernel_warn_err", "cmd": "dmesg", "args": ["-T", "--level=err,warn"]},
-    ];
+    sc::log("  resources...");
+    push(entries, "resources", "uptime", []).await;
+    push(entries, "resources", "free", ["-h"]).await;
+    push(entries, "resources", "df", ["-h", "/"]).await;
 
-    for probe in probes {
-        sc::log(`  collecting ${probe.name}...`);
+    sc::log("  sysinfo...");
+    push(entries, "sysinfo", "uname", ["-a"]).await;
+    push(entries, "sysinfo", "hostnamectl", []).await;
+    push(entries, "sysinfo", "cat", ["/etc/os-release"]).await;
+    push(entries, "sysinfo", "uptime", []).await;
+    push(entries, "sysinfo", "timedatectl", []).await;
+    push(entries, "sysinfo", "locale", []).await;
 
-        let output = run_raw(probe.cmd, probe.args).await;
+    sc::log("  hardware...");
+    push(entries, "hardware", "free", ["-h"]).await;
+    push(entries, "hardware", "lsblk", ["-f"]).await;
+    push(entries, "hardware", "blkid", []).await;
+    push(entries, "hardware", "lspci", []).await;
+    push(entries, "hardware", "lsusb", []).await;
+
+    sc::log("  services...");
+    push(entries, "services", "systemctl", [
+        "list-units", "--type=service", "--all", "--no-pager",
+    ]).await;
+
+    sc::log("  systemd status...");
+    push(entries, "systemd_status", "systemctl", ["--failed"]).await;
+    push(entries, "systemd_status", "systemctl", ["list-units", "--state=failed"]).await;
+    push(entries, "systemd_status", "systemctl", ["list-timers", "--all"]).await;
+    push(entries, "systemd_status", "systemctl", ["list-jobs"]).await;
+
+    sc::log("  logs...");
+    let units = log_units().await;
+    sc::log(`  collecting ${units.len()} units`);
+    for unit in units {
+        push(entries, `logs/${unit.replace("/", "_").replace("*", "")}`, "journalctl", [
+            "-n", "500", "--no-pager", "-u", unit,
+        ]).await;
+    }
+
+    sc::log("  kernel logs...");
+    push(entries, "kernel_logs", "dmesg", ["-T", "--level=err,warn"]).await;
+    push(entries, "kernel_logs", "journalctl", ["-k", "-n", "500", "--no-pager"]).await;
+    push(entries, "kernel_logs", "journalctl", ["-b", "-n", "1000", "--no-pager"]).await;
+    push(entries, "kernel_logs", "journalctl", ["-p", "warning..alert", "-n", "1000", "--no-pager"]).await;
+
+    sc::log("  processes...");
+    push(entries, "processes", "ps", ["aux"]).await;
+
+    sc::log("  network...");
+    push(entries, "network", "ip", ["addr"]).await;
+    push(entries, "network", "ip", ["route"]).await;
+    push(entries, "network", "ip", ["rule"]).await;
+    push(entries, "network", "resolvectl", ["status"]).await;
+    push(entries, "network", "cat", ["/etc/resolv.conf"]).await;
+
+    sc::log("  wifi...");
+    let wifi = run_raw("nmcli", ["dev", "wifi"]).await;
+    if !wifi.contains("[error:") {
         entries.push(#{
-            "name": probe.name,
-            "command": probe.cmd,
-            "args": probe.args,
-            "output": output,
+            "section": "wifi",
+            "command": "nmcli",
+            "args": ["dev", "wifi"],
+            "output": wifi,
         });
     }
+
+    sc::log("  ports...");
+    let ports = run_raw("netstat", ["-an"]).await;
+    if !ports.contains("[error:") {
+        entries.push(#{
+            "section": "ports",
+            "command": "netstat",
+            "args": ["-an"],
+            "output": ports,
+        });
+    }
+
+    sc::log("  filesystems...");
+    push(entries, "filesystems", "mount", []).await;
+    push(entries, "filesystems", "findmnt", []).await;
+    push(entries, "filesystems", "lsblk", []).await;
+    push(entries, "filesystems", "df", ["-h"]).await;
+    push(entries, "filesystems", "df", ["-ih"]).await;
+    push(entries, "filesystems", "du", ["-sh", "/var/log", "/tmp"]).await;
+    push(entries, "filesystems", "du", ["-h", "/media/card"]).await;
+
+    sc::log("  summary...");
+    push(entries, "summary", "hostname", []).await;
+    push(entries, "summary", "cat", ["/etc/os-release"]).await;
+    push(entries, "summary", "uptime", []).await;
+    push(entries, "summary", "systemctl", ["--failed", "--no-legend", "--no-pager"]).await;
+    push(entries, "summary", "ip", ["-brief", "addr"]).await;
+    push(entries, "summary", "uptime", []).await;
+    push(entries, "summary", "free", ["-h"]).await;
+    push(entries, "summary", "df", ["-h", "/"]).await;
 
     let payload = #{
         "format": "state-collector-json-v1",
