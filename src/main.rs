@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::process::exit;
 use std::sync::{Arc, OnceLock};
 
 use anyhow::Context;
@@ -9,6 +10,31 @@ use rune::{
     ContextError, Diagnostics, Module, Source, Sources, Vm,
     runtime::Bytes,
     termcolor::{ColorChoice, StandardStream},
+};
+
+const MODULE_NAME: &str = match option_env!("STATE_COLLECTOR_MODULE_NAME") {
+    Some(name) => name,
+    None => "sc",
+};
+
+const LOG_PREFIX: &str = match option_env!("STATE_COLLECTOR_LOG_PREFIX") {
+    Some(name) => name,
+    None => "[collector]",
+};
+
+const ARCHIVE_EXT: &str = match option_env!("STATE_COLLECTOR_ARCHIVE_EXT") {
+    Some(ext) => ext,
+    None => "sc",
+};
+
+const TEMP_DIR_SUFFIX: &str = match option_env!("STATE_COLLECTOR_TEMP_DIR_SUFFIX") {
+    Some(suffix) => suffix,
+    None => "sc",
+};
+
+const ARCHIVE_PREFIX: &str = match option_env!("STATE_COLLECTOR_ARCHIVE_PREFIX") {
+    Some(prefix) => prefix,
+    None => "collected-state",
 };
 
 static OUTDIR: OnceLock<PathBuf> = OnceLock::new();
@@ -67,7 +93,7 @@ fn write_bytes(path: String, content: Bytes) -> Result<(), anyhow::Error> {
 /// Print a progress message to stderr.
 #[rune::function]
 fn log(msg: String) {
-    eprintln!("[collector] {msg}");
+    eprintln!("{LOG_PREFIX} {msg}");
 }
 
 /// Return the absolute path of the output directory.
@@ -88,7 +114,7 @@ fn timestamp() -> String {
 // ── Module registration ───────────────────────────────────────────────────────
 
 pub fn module() -> Result<Module, ContextError> {
-    let mut m = Module::with_item(["sc"])?;
+    let mut m = Module::with_item([MODULE_NAME])?;
     m.function_meta(version)?;
     m.function_meta(write)?;
     m.function_meta(to_postcard_bytes)?;
@@ -103,12 +129,15 @@ pub fn module() -> Result<Module, ContextError> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let Cli { script, output } = Cli::parse();
+    let Ok(Cli { script, output }) = Cli::try_parse() else {
+        // disable usage and help text
+        exit(1);
+    };
 
     let ts = Local::now().format("%Y%m%d_%H%M%S").to_string();
 
     // Temp directory that the script writes into
-    let tempdir = std::env::temp_dir().join(format!("sc-{ts}"));
+    let tempdir = std::env::temp_dir().join(format!("{TEMP_DIR_SUFFIX}-{ts}"));
     std::fs::create_dir_all(&tempdir)?;
     OUTDIR.set(tempdir.clone()).ok();
 
@@ -145,14 +174,14 @@ async fn main() -> anyhow::Result<()> {
     let default_output = std::env::current_dir()
         .unwrap_or_else(|_| PathBuf::from("."))
         .join(format!(
-            "{}-{ts}.sc",
+            "{}-{ts}.{ARCHIVE_EXT}",
             std::env::current_exe()
                 .map(|e| e
                     .file_stem()
                     .expect("to have a file-stem")
                     .to_string_lossy()
                     .to_string())
-                .unwrap_or_else(|_| String::from("collected-state"))
+                .unwrap_or_else(|_| String::from(ARCHIVE_PREFIX))
         ));
     let output_path = output.as_deref().unwrap_or(&default_output);
 
