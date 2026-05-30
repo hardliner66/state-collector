@@ -4,6 +4,6 @@
 
 pub async fn collect() {
     sc::log(`starting JSON collection at ${sc::timestamp()}`);
-    sc::write("state.json", json::to_string(sc::snapshot()?)?)?;
+    sc::write("state.json", sc::snapshot_json()?)?;
     sc::log("JSON collection complete.");
 }

@@ -3,19 +3,20 @@ use std::process::{Command, Stdio};
 use anyhow::Context;
 use chrono::Local;
 use rune::Any;
+use serde::Serialize;
 
-#[derive(Any)]
+#[derive(Any, Serialize)]
 pub struct KeyValue {
     pub key: String,
     pub value: String,
 }
 
-#[derive(Any)]
+#[derive(Any, Serialize)]
 pub struct TextLines {
     pub lines: Vec<String>,
 }
 
-#[derive(Any)]
+#[derive(Any, Serialize)]
 pub struct UptimeInfo {
     pub pretty: String,
     pub uptime_seconds: f64,
@@ -24,7 +25,7 @@ pub struct UptimeInfo {
     pub load_15: f64,
 }
 
-#[derive(Any)]
+#[derive(Any, Serialize)]
 pub struct HostSection {
     pub hostname: String,
     pub os_release: Vec<KeyValue>,
@@ -34,14 +35,14 @@ pub struct HostSection {
     pub locale: Vec<KeyValue>,
 }
 
-#[derive(Any)]
+#[derive(Any, Serialize)]
 pub struct ResourcesSection {
     pub uptime: UptimeInfo,
     pub memory_free_h: TextLines,
     pub disk_root_df_h: TextLines,
 }
 
-#[derive(Any)]
+#[derive(Any, Serialize)]
 pub struct HardwareSection {
     pub memory_free_h: TextLines,
     pub lsblk_f: TextLines,
@@ -50,7 +51,7 @@ pub struct HardwareSection {
     pub lsusb: TextLines,
 }
 
-#[derive(Any)]
+#[derive(Any, Serialize)]
 pub struct SystemdStatusSection {
     pub services: TextLines,
     pub failed: TextLines,
@@ -59,7 +60,7 @@ pub struct SystemdStatusSection {
     pub jobs: TextLines,
 }
 
-#[derive(Any)]
+#[derive(Any, Serialize)]
 pub struct NetworkSection {
     pub ip_addr: TextLines,
     pub ip_route: TextLines,
@@ -68,7 +69,7 @@ pub struct NetworkSection {
     pub resolv_conf: TextLines,
 }
 
-#[derive(Any)]
+#[derive(Any, Serialize)]
 pub struct FilesystemSection {
     pub mount: TextLines,
     pub findmnt: TextLines,
@@ -79,12 +80,12 @@ pub struct FilesystemSection {
     pub du_media_card: TextLines,
 }
 
-#[derive(Any)]
+#[derive(Any, Serialize)]
 pub struct ProcessSection {
     pub ps_aux: TextLines,
 }
 
-#[derive(Any)]
+#[derive(Any, Serialize)]
 pub struct Snapshot {
     pub generated_at: String,
     pub collector_version: String,
@@ -374,6 +375,25 @@ fn summary_text_inner(snapshot: &Snapshot) -> String {
 #[rune::function]
 pub fn snapshot() -> Result<Snapshot, anyhow::Error> {
     snapshot_inner()
+}
+
+#[rune::function]
+pub fn snapshot_json() -> Result<String, anyhow::Error> {
+    let snap = snapshot_inner()?;
+    Ok(serde_json::to_string_pretty(&snap)?)
+}
+
+#[rune::function]
+pub fn snapshot_bytes() -> Result<rune::runtime::Bytes, anyhow::Error> {
+    let snap = snapshot_inner()?;
+    let bytes = postcard::to_allocvec(&snap)?;
+    let mut rune_vec = rune::alloc::Vec::new();
+    for byte in bytes {
+        rune_vec
+            .try_push(byte)
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+    }
+    Ok(rune::runtime::Bytes::from_vec(rune_vec))
 }
 
 #[rune::function]

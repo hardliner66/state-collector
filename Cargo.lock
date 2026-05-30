@@ -1580,6 +1580,8 @@ dependencies = [
  "postcard",
  "rune",
  "rune-modules",
+ "serde",
+ "serde_json",
  "tar",
  "tokio",
 ]

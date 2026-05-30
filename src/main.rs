@@ -182,6 +182,8 @@ pub fn module() -> Result<Module, ContextError> {
     m.function_meta(os_pretty_name)?;
     m.function_meta(uptime)?;
     m.function_meta(collector::snapshot)?;
+    m.function_meta(collector::snapshot_json)?;
+    m.function_meta(collector::snapshot_bytes)?;
     m.function_meta(collector::log_units)?;
     m.function_meta(collector::resources_text)?;
     m.function_meta(collector::sysinfo_text)?;

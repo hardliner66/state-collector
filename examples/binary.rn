@@ -5,6 +5,6 @@
 pub async fn collect() {
     sc::log(`starting binary collection at ${sc::timestamp()}`);
     sc::log("  collecting structured snapshot...");
-    sc::write_bytes("state.bin", sc::to_postcard_bytes(sc::snapshot()?)?)?;
+    sc::write_bytes("state.bin", sc::snapshot_bytes()?)?;
     sc::log("binary collection complete.");
 }
