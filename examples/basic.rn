@@ -4,27 +4,76 @@
 //   state-collector examples/basic.rn                # explicit script path
 //   state-collector --output /tmp/snapshot.sc        # custom output path
 
-pub fn collect() {
+use process::{Command, Stdio};
+
+pub async fn collect() {
     sc::log(`starting collection at ${sc::timestamp()}`);
 
-    collect_resources();
-    collect_sysinfo();
-    collect_hardware();
-    collect_services();
-    collect_systemd_status();
-    collect_logs();
-    collect_kernel_logs();
-    collect_processes();
-    collect_network();
-    collect_wifi();
-    collect_ports();
-    collect_filesystems();
-    collect_summary();
+    collect_resources().await;
+    collect_sysinfo().await;
+    collect_hardware().await;
+    collect_services().await;
+    collect_systemd_status().await;
+    collect_logs().await;
+    collect_kernel_logs().await;
+    collect_processes().await;
+    collect_network().await;
+    collect_wifi().await;
+    collect_ports().await;
+    collect_filesystems().await;
+    collect_summary().await;
 
     sc::log("done.");
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+async fn run_raw(cmd, args) {
+    let command = Command::new(cmd);
+    command.args(args);
+    command.stdout(Stdio::piped());
+    command.stderr(Stdio::piped());
+
+    match command.spawn() {
+        Ok(child) => match child.wait_with_output().await {
+            Ok(output) => match String::from_utf8(output.stdout) {
+                Ok(stdout) => {
+                    if stdout.trim().is_empty() {
+                        match String::from_utf8(output.stderr) {
+                            Ok(stderr) => stderr,
+                            Err(error) => {
+                                `[error: ${error}]`
+                            }
+                        }
+                    } else {
+                        stdout
+                    }
+                }
+                Err(error) => {
+                    `[error: ${error}]`
+                }
+            },
+            Err(error) => {
+                `[error: ${error}]`
+            }
+        },
+        Err(error) => {
+            `[error: ${error}]`
+        }
+    }
+}
+
+async fn run(cmd, args) {
+    let header = `=== ${cmd}`;
+    let i = 0;
+    while i < args.len() {
+        header += ` ${args[i]}`;
+        i += 1;
+    }
+    header += " ===\n";
+
+    `${header}${run_raw(cmd, args).await}\n`
+}
 
 // Return the first whitespace-delimited field of a line.
 fn first_field(line) {
@@ -37,13 +86,13 @@ fn first_field(line) {
 }
 
 // Build the list of units to collect logs for:
-fn log_units() {
+async fn log_units() {
     let units = ["NetworkManager.service", "sshd@.service"];
 
-    let output = sc::run_raw("systemctl", [
+    let output = run_raw("systemctl", [
         "list-units", "--type=service", "--all",
         "--plain", "--no-legend", "--no-pager",
-    ]);
+    ]).await;
 
     for line in output.split("\n") {
         let line = line.trim();
@@ -70,134 +119,134 @@ fn log_units() {
 
 // ── Collectors ───────────────────────────────────────────────────────────────
 
-fn collect_resources() {
+async fn collect_resources() {
     sc::log("  resources...");
-    let buf = sc::run("uptime", [])
-        + sc::run("free", ["-h"])
-        + sc::run("df", ["-h", "/"]);
+    let buf = run("uptime", []).await
+        + run("free", ["-h"]).await
+        + run("df", ["-h", "/"]).await;
     sc::write("resources.txt", buf)?;
 }
 
-fn collect_sysinfo() {
+async fn collect_sysinfo() {
     sc::log("  sysinfo...");
-    let buf = sc::run("uname", ["-a"])
-        + sc::run("hostnamectl", [])
-        + sc::run("cat", ["/etc/os-release"])
-        + sc::run("uptime", [])
-        + sc::run("timedatectl", [])
-        + sc::run("locale", []);
+    let buf = run("uname", ["-a"]).await
+        + run("hostnamectl", []).await
+        + run("cat", ["/etc/os-release"]).await
+        + run("uptime", []).await
+        + run("timedatectl", []).await
+        + run("locale", []).await;
     sc::write("sysinfo.txt", buf)?;
 }
 
-fn collect_hardware() {
+async fn collect_hardware() {
     sc::log("  hardware...");
-    let buf = sc::run("free", ["-h"])
-        + sc::run("lsblk", ["-f"])
-        + sc::run("blkid", [])
-        + sc::run("lspci", [])
-        + sc::run("lsusb", []);
+    let buf = run("free", ["-h"]).await
+        + run("lsblk", ["-f"]).await
+        + run("blkid", []).await
+        + run("lspci", []).await
+        + run("lsusb", []).await;
     sc::write("hardware.txt", buf)?;
 }
 
-fn collect_services() {
+async fn collect_services() {
     sc::log("  services...");
-    let buf = sc::run("systemctl", [
+    let buf = run("systemctl", [
         "list-units", "--type=service", "--all", "--no-pager",
-    ]);
+    ]).await;
     sc::write("services.txt", buf)?;
 }
 
-fn collect_systemd_status() {
+async fn collect_systemd_status() {
     sc::log("  systemd status...");
-    let buf = sc::run("systemctl", ["--failed"])
-        + sc::run("systemctl", ["list-units", "--state=failed"])
-        + sc::run("systemctl", ["list-timers", "--all"])
-        + sc::run("systemctl", ["list-jobs"]);
+    let buf = run("systemctl", ["--failed"]).await
+        + run("systemctl", ["list-units", "--state=failed"]).await
+        + run("systemctl", ["list-timers", "--all"]).await
+        + run("systemctl", ["list-jobs"]).await;
     sc::write("systemd_status.txt", buf)?;
 }
 
-fn collect_logs() {
+async fn collect_logs() {
     sc::log("  logs...");
-    let units = log_units();
+    let units = log_units().await;
     sc::log(`  collecting ${units.len()} units`);
 
     for unit in units {
         // Compute filename before `unit` is consumed by the args array in run().
         let filename = unit.replace("/", "_").replace("*", "");
-        let output = sc::run("journalctl", ["-n", "500", "--no-pager", "-u", unit]);
+        let output = run("journalctl", ["-n", "500", "--no-pager", "-u", unit]).await;
         sc::write(`logs/${filename}.log`, output)?;
     }
 }
 
-fn collect_kernel_logs() {
+async fn collect_kernel_logs() {
     sc::log("  kernel logs...");
-    let buf = sc::run("dmesg", ["-T", "--level=err,warn"])
-        + sc::run("journalctl", ["-k", "-n", "500", "--no-pager"])
-        + sc::run("journalctl", ["-b", "-n", "1000", "--no-pager"])
-        + sc::run("journalctl", ["-p", "warning..alert", "-n", "1000", "--no-pager"]);
+    let buf = run("dmesg", ["-T", "--level=err,warn"]).await
+        + run("journalctl", ["-k", "-n", "500", "--no-pager"]).await
+        + run("journalctl", ["-b", "-n", "1000", "--no-pager"]).await
+        + run("journalctl", ["-p", "warning..alert", "-n", "1000", "--no-pager"]).await;
     sc::write("kernel_logs.txt", buf)?;
 }
 
-fn collect_processes() {
+async fn collect_processes() {
     sc::log("  processes...");
-    sc::write("processes.txt", sc::run("ps", ["aux"]))?;
+    sc::write("processes.txt", run("ps", ["aux"]).await)?;
 }
 
-fn collect_network() {
+async fn collect_network() {
     sc::log("  network...");
-    let buf = sc::run("ip", ["addr"])
-        + sc::run("ip", ["route"])
-        + sc::run("ip", ["rule"])
-        + sc::run("resolvectl", ["status"])
-        + sc::run("cat", ["/etc/resolv.conf"]);
+    let buf = run("ip", ["addr"]).await
+        + run("ip", ["route"]).await
+        + run("ip", ["rule"]).await
+        + run("resolvectl", ["status"]).await
+        + run("cat", ["/etc/resolv.conf"]).await;
     sc::write("network.txt", buf)?;
 }
 
-fn collect_wifi() {
+async fn collect_wifi() {
     sc::log("  wifi...");
-    let out = sc::run("nmcli", ["dev", "wifi"]);
+    let out = run("nmcli", ["dev", "wifi"]).await;
     if !out.contains("[error:") {
         sc::write("wifi.txt", out)?;
     }
 }
 
-fn collect_ports() {
+async fn collect_ports() {
     sc::log("  ports...");
-    let out = sc::run("netstat", ["-an"]);
+    let out = run("netstat", ["-an"]).await;
     if !out.contains("[error:") {
         sc::write("ports.txt", out)?;
     }
 }
 
-fn collect_filesystems() {
+async fn collect_filesystems() {
     sc::log("  filesystems...");
-    let buf = sc::run("mount", [])
-        + sc::run("findmnt", [])
-        + sc::run("lsblk", [])
-        + sc::run("df", ["-h"])
-        + sc::run("df", ["-ih"])
-        + sc::run("du", ["-sh", "/var/log", "/tmp"])
-        + sc::run("du", ["-h", "/media/card"]);
+    let buf = run("mount", []).await
+        + run("findmnt", []).await
+        + run("lsblk", []).await
+        + run("df", ["-h"]).await
+        + run("df", ["-ih"]).await
+        + run("du", ["-sh", "/var/log", "/tmp"]).await
+        + run("du", ["-h", "/media/card"]).await;
     sc::write("filesystems.txt", buf)?;
 }
 
-fn collect_summary() {
+async fn collect_summary() {
     sc::log("  summary...");
 
     // Use run_raw for targeted queries so we get clean values without headers.
-    let hostname = sc::run_raw("hostname", []).trim();
+    let hostname = run_raw("hostname", []).await.trim();
 
     let os_name = "";
-    for line in sc::run_raw("cat", ["/etc/os-release"]).split("\n") {
+    for line in run_raw("cat", ["/etc/os-release"]).await.split("\n") {
         if line.starts_with("PRETTY_NAME=") {
             os_name = line.replace("PRETTY_NAME=", "").replace("\"", "").trim();
             break;
         }
     }
 
-    let uptime = sc::run_raw("uptime", []).trim();
-    let failed = sc::run_raw("systemctl", ["--failed", "--no-legend", "--no-pager"]).trim();
-    let ip_brief = sc::run_raw("ip", ["-brief", "addr"]);
+    let uptime = run_raw("uptime", []).await.trim();
+    let failed = run_raw("systemctl", ["--failed", "--no-legend", "--no-pager"]).await.trim();
+    let ip_brief = run_raw("ip", ["-brief", "addr"]).await;
 
     let buf = "System State Dump\n";
     buf += `Collected: ${sc::timestamp()}\n\n`;
@@ -205,11 +254,11 @@ fn collect_summary() {
     buf += `OS:        ${os_name}\n`;
     buf += `Uptime:    ${uptime}\n`;
     buf += "\nRESOURCES\n---------\n";
-    buf += sc::run_raw("uptime", []);
+    buf += run_raw("uptime", []).await;
     buf += "\n";
-    buf += sc::run_raw("free", ["-h"]);
+    buf += run_raw("free", ["-h"]).await;
     buf += "\n";
-    buf += sc::run_raw("df", ["-h", "/"]);
+    buf += run_raw("df", ["-h", "/"]).await;
     buf += "\nFAILED UNITS\n------------\n";
     if failed.is_empty() {
         buf += "(none)\n";
