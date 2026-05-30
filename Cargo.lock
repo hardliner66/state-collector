@@ -1576,6 +1576,7 @@ dependencies = [
  "chrono",
  "clap",
  "flate2",
+ "libc",
  "postcard",
  "rune",
  "rune-modules",

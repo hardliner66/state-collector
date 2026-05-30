@@ -29,12 +29,16 @@ _The script engine does not yet proved an extensive set of APIs to help with tha
 - Expects the script to expose `pub async fn collect()`.
 - Makes a module available to scripts (default module name: `sc`) with helper functions:
   - `sc::version()`
+  - `sc::hostname()`
+  - `sc::os_pretty_name()`
+  - `sc::uptime()`
   - `sc::write(path, content)`
   - `sc::to_postcard_bytes(value)`
   - `sc::write_bytes(path, content)`
   - `sc::log(message)`
   - `sc::outdir()`
   - `sc::timestamp()`
+- Some common summary values are read directly from host state rather than parsed from command output.
 - Archives the staging directory as a gzip-compressed tar file (default extension: `.sc`).
 
 `sc-unpack`:

@@ -79,15 +79,6 @@ async fn log_units() {
     units
 }
 
-fn pretty_name_from_os_release(text) {
-    for line in text.split("\n") {
-        if line.starts_with("PRETTY_NAME=") {
-            return line.replace("PRETTY_NAME=", "").replace("\"", "").trim();
-        }
-    }
-    ""
-}
-
 async fn build_payload() {
     let resources = #{
         "uptime": command_entry("uptime", []).await,
@@ -190,9 +181,9 @@ async fn build_payload() {
         "du_media_card": command_entry("du", ["-h", "/media/card"]).await,
     };
 
-    let summary_hostname = run_raw("hostname", []).await.trim();
-    let summary_os_release = run_raw("cat", ["/etc/os-release"]).await;
-    let summary_uptime = run_raw("uptime", []).await.trim();
+    let summary_hostname = sc::hostname()?;
+    let summary_os_pretty_name = sc::os_pretty_name()?;
+    let summary_uptime = sc::uptime()?;
     let summary_failed = run_raw("systemctl", ["--failed", "--no-legend", "--no-pager"]).await.trim();
     let summary_ip_brief = run_raw("ip", ["-brief", "addr"]).await;
     let summary_uptime_raw = run_raw("uptime", []).await;
@@ -201,7 +192,7 @@ async fn build_payload() {
 
     let summary = #{
         "hostname": summary_hostname,
-        "os_pretty_name": pretty_name_from_os_release(summary_os_release),
+        "os_pretty_name": summary_os_pretty_name,
         "uptime": summary_uptime,
         "failed_units_raw": summary_failed,
         "ip_brief": summary_ip_brief,

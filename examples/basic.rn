@@ -233,18 +233,9 @@ async fn collect_filesystems() {
 async fn collect_summary() {
     sc::log("  summary...");
 
-    // Use run_raw for targeted queries so we get clean values without headers.
-    let hostname = run_raw("hostname", []).await.trim();
-
-    let os_name = "";
-    for line in run_raw("cat", ["/etc/os-release"]).await.split("\n") {
-        if line.starts_with("PRETTY_NAME=") {
-            os_name = line.replace("PRETTY_NAME=", "").replace("\"", "").trim();
-            break;
-        }
-    }
-
-    let uptime = run_raw("uptime", []).await.trim();
+    let hostname = sc::hostname()?;
+    let os_name = sc::os_pretty_name()?;
+    let uptime = sc::uptime()?;
     let failed = run_raw("systemctl", ["--failed", "--no-legend", "--no-pager"]).await.trim();
     let ip_brief = run_raw("ip", ["-brief", "addr"]).await;
 

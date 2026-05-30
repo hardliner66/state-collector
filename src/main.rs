@@ -40,6 +40,8 @@ const ARCHIVE_PREFIX: &str = match option_env!("STATE_COLLECTOR_ARCHIVE_PREFIX")
 static OUTDIR: OnceLock<PathBuf> = OnceLock::new();
 
 const DEFAULT_SCRIPT: &str = include_str!("../examples/basic.rn");
+const OS_RELEASE_PATH: &str = "/etc/os-release";
+const UPTIME_PATH: &str = "/proc/uptime";
 
 #[derive(Parser)]
 struct Cli {
@@ -55,6 +57,48 @@ struct Cli {
 #[rune::function]
 fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
+}
+
+#[rune::function]
+fn hostname() -> Result<String, anyhow::Error> {
+    let mut buffer = vec![0u8; 256];
+    let result =
+        unsafe { libc::gethostname(buffer.as_mut_ptr() as *mut libc::c_char, buffer.len()) };
+    if result != 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+
+    let nul = buffer
+        .iter()
+        .position(|byte| *byte == 0)
+        .unwrap_or(buffer.len());
+    buffer.truncate(nul);
+    Ok(String::from_utf8(buffer)?)
+}
+
+#[rune::function]
+fn os_pretty_name() -> Result<String, anyhow::Error> {
+    let contents = std::fs::read_to_string(OS_RELEASE_PATH)?;
+
+    for line in contents.lines() {
+        if let Some(value) = line.strip_prefix("PRETTY_NAME=") {
+            return Ok(value.trim_matches('"').to_string());
+        }
+    }
+
+    Ok(String::new())
+}
+
+#[rune::function]
+fn uptime() -> Result<String, anyhow::Error> {
+    let contents = std::fs::read_to_string(UPTIME_PATH)?;
+    let seconds = contents
+        .split_whitespace()
+        .next()
+        .context("missing uptime seconds")?
+        .parse::<f64>()?;
+
+    Ok(format_uptime(seconds))
 }
 
 /// Write `content` to `path` relative to the output directory.
@@ -111,11 +155,31 @@ fn timestamp() -> String {
     Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
 }
 
+fn format_uptime(seconds: f64) -> String {
+    let total_seconds = seconds.max(0.0).floor() as u64;
+    let days = total_seconds / 86_400;
+    let hours = (total_seconds % 86_400) / 3_600;
+    let minutes = (total_seconds % 3_600) / 60;
+    let seconds = total_seconds % 60;
+
+    if days > 0 {
+        format!(
+            "up {days} day{}, {hours:02}:{minutes:02}:{seconds:02}",
+            if days == 1 { "" } else { "s" }
+        )
+    } else {
+        format!("up {hours:02}:{minutes:02}:{seconds:02}")
+    }
+}
+
 // ── Module registration ───────────────────────────────────────────────────────
 
 pub fn module() -> Result<Module, ContextError> {
     let mut m = Module::with_item([MODULE_NAME])?;
     m.function_meta(version)?;
+    m.function_meta(hostname)?;
+    m.function_meta(os_pretty_name)?;
+    m.function_meta(uptime)?;
     m.function_meta(write)?;
     m.function_meta(to_postcard_bytes)?;
     m.function_meta(write_bytes)?;
