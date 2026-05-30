@@ -6,6 +6,7 @@ use chrono::Local;
 use clap::Parser;
 use rune::{
     ContextError, Diagnostics, Module, Source, Sources, Vm,
+    runtime::Bytes,
     termcolor::{ColorChoice, StandardStream},
 };
 
@@ -42,6 +43,19 @@ fn write(path: String, content: String) -> Result<(), anyhow::Error> {
     Ok(())
 }
 
+/// Write binary `content` to `path` relative to the output directory.
+/// Parent directories are created automatically.
+#[rune::function]
+fn write_bytes(path: String, content: Bytes) -> Result<(), anyhow::Error> {
+    let outdir = OUTDIR.get().context("output directory not initialized")?;
+    let full = outdir.join(&path);
+    if let Some(parent) = full.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&full, content.as_slice())?;
+    Ok(())
+}
+
 /// Print a progress message to stderr.
 #[rune::function]
 fn log(msg: String) {
@@ -69,6 +83,7 @@ pub fn module() -> Result<Module, ContextError> {
     let mut m = Module::with_item(["sc"])?;
     m.function_meta(version)?;
     m.function_meta(write)?;
+    m.function_meta(write_bytes)?;
     m.function_meta(log)?;
     m.function_meta(outdir)?;
     m.function_meta(timestamp)?;
