@@ -1,6 +1,7 @@
 #!/bin/bash
 
 mkdir -p tmp
+rm -rf tmp/*
 
 for file in examples/*.rn; do
     filename=$(basename -- "$file")

@@ -6,6 +6,7 @@ use anyhow::Context;
 use chrono::Local;
 use clap::Parser;
 use postcard;
+mod collector;
 use rune::{
     ContextError, Diagnostics, Module, Source, Sources, Vm,
     runtime::Bytes,
@@ -55,7 +56,7 @@ struct Cli {
 // ── Rune-exposed functions ────────────────────────────────────────────────────
 
 #[rune::function]
-fn version() -> &'static str {
+pub(crate) fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
@@ -142,7 +143,7 @@ fn log(msg: String) {
 
 /// Return the absolute path of the output directory.
 #[rune::function]
-fn outdir() -> String {
+pub(crate) fn outdir() -> String {
     OUTDIR
         .get()
         .map(|p| p.to_string_lossy().into_owned())
@@ -180,6 +181,19 @@ pub fn module() -> Result<Module, ContextError> {
     m.function_meta(hostname)?;
     m.function_meta(os_pretty_name)?;
     m.function_meta(uptime)?;
+    m.function_meta(collector::snapshot)?;
+    m.function_meta(collector::log_units)?;
+    m.function_meta(collector::resources_text)?;
+    m.function_meta(collector::sysinfo_text)?;
+    m.function_meta(collector::hardware_text)?;
+    m.function_meta(collector::services_text)?;
+    m.function_meta(collector::systemd_status_text)?;
+    m.function_meta(collector::network_text)?;
+    m.function_meta(collector::wifi_text)?;
+    m.function_meta(collector::ports_text)?;
+    m.function_meta(collector::filesystems_text)?;
+    m.function_meta(collector::processes_text)?;
+    m.function_meta(collector::summary_text)?;
     m.function_meta(write)?;
     m.function_meta(to_postcard_bytes)?;
     m.function_meta(write_bytes)?;

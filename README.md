@@ -32,6 +32,19 @@ _The script engine does not yet proved an extensive set of APIs to help with tha
   - `sc::hostname()`
   - `sc::os_pretty_name()`
   - `sc::uptime()`
+  - `sc::snapshot()`
+  - `sc::log_units()`
+  - `sc::resources_text()`
+  - `sc::sysinfo_text()`
+  - `sc::hardware_text()`
+  - `sc::services_text()`
+  - `sc::systemd_status_text()`
+  - `sc::network_text()`
+  - `sc::wifi_text()`
+  - `sc::ports_text()`
+  - `sc::filesystems_text()`
+  - `sc::processes_text()`
+  - `sc::summary_text()`
   - `sc::write(path, content)`
   - `sc::to_postcard_bytes(value)`
   - `sc::write_bytes(path, content)`
