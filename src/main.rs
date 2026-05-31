@@ -6,19 +6,17 @@ use tempfile::TempDir;
 
 use chrono::Local;
 use clap::{Parser, Subcommand};
-mod collector;
-mod constants;
 use rune::{
     Diagnostics, Source, Sources, Vm,
     termcolor::{ColorChoice, StandardStream},
 };
 
-use crate::constants::{
+use state_collector::constants::{
     ARCHIVE_EXT, ARCHIVE_PREFIX, DEFAULT_SCRIPT_BASIC, DEFAULT_SCRIPT_BINARY, DEFAULT_SCRIPT_JSON,
     DEFAULT_SCRIPT_RSN,
 };
+use state_collector::{collector, OUTDIR};
 
-static OUTDIR: OnceLock<PathBuf> = OnceLock::new();
 static TEMPDIR: OnceLock<TempDir> = OnceLock::new();
 
 #[derive(Subcommand, Default)]

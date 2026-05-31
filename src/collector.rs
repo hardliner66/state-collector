@@ -477,12 +477,12 @@ fn parse_du(paths: &[&str]) -> Vec<DiskUsage> {
         .collect()
 }
 
-/// Parse `lsblk -P -o NAME,SIZE,TYPE,FSTYPE,LABEL,UUID,MOUNTPOINT` output
+/// Parse `lsblk -P -o NAME,SIZE,TYPE,FSTYPE,LABEL,UUID,MOUNTPOINTS` output
 /// into `BlockDevice` entries.
 fn parse_lsblk() -> Vec<BlockDevice> {
     let text = match run_command(
         "lsblk",
-        &["-P", "-o", "NAME,SIZE,TYPE,FSTYPE,LABEL,UUID,MOUNTPOINT"],
+        &["-P", "-o", "NAME,SIZE,TYPE,FSTYPE,LABEL,UUID,MOUNTPOINTS"],
     ) {
         Ok(t) => t,
         Err(_) => return vec![],
@@ -501,8 +501,10 @@ fn parse_lsblk() -> Vec<BlockDevice> {
                 .map(|(_, v)| v.clone())
                 .unwrap_or_default()
         };
-        let mp = get("MOUNTPOINT");
-        let mountpoints: Vec<String> = if mp.is_empty() { vec![] } else { vec![mp] };
+        let mountpoints: Vec<String> = get("MOUNTPOINTS")
+            .split_whitespace()
+            .map(str::to_owned)
+            .collect();
         result.push(BlockDevice {
             name: get("NAME"),
             size: get("SIZE"),
@@ -1004,24 +1006,25 @@ fn snapshot_inner() -> anyhow::Result<Snapshot> {
     let memory = parse_free();
     let systemd_services = parse_systemd_units();
     let block_devices = parse_lsblk();
+    let uptime = uptime_info()?;
 
     Ok(Snapshot {
         generated_at: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
         collector_version: env!("CARGO_PKG_VERSION").to_string(),
-        outdir: std::env::current_dir()
-            .unwrap_or_else(|_| std::path::PathBuf::from("."))
-            .to_string_lossy()
-            .into_owned(),
+        outdir: OUTDIR
+            .get()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default(),
         host: HostSection {
             hostname: hostname_inner()?,
             os_release: key_values_equals(&std::fs::read_to_string("/etc/os-release")?),
-            uptime: uptime_info()?,
+            uptime: uptime.clone(),
             hostnamectl: kv_or_error_colon("hostnamectl", &[]),
             timedatectl: kv_or_error_colon("timedatectl", &[]),
             locale: kv_or_error_equals("locale", &[]),
         },
         resources: ResourcesSection {
-            uptime: uptime_info()?,
+            uptime,
             memory: memory.clone(),
             disk_root: parse_df(&["-h", "/"]),
         },
@@ -1343,23 +1346,25 @@ fn uptime() -> Result<String, anyhow::Error> {
     Ok(format_uptime(seconds))
 }
 
+fn checked_output_path(outdir: &PathBuf, path: &str) -> anyhow::Result<PathBuf> {
+    let p = std::path::Path::new(path);
+    if p.is_absolute() {
+        return Err(anyhow::anyhow!("write path must be relative: {path}"));
+    }
+    if p.components()
+        .any(|c| c == std::path::Component::ParentDir)
+    {
+        return Err(anyhow::anyhow!("write path must not contain '..': {path}"));
+    }
+    Ok(outdir.join(path))
+}
+
 /// Write `content` to `path` relative to the output directory.
 /// Parent directories are created automatically. Rejects absolute or escaping paths.
 #[rune::function]
 fn write(path: String, content: String) -> Result<(), anyhow::Error> {
     let outdir = OUTDIR.get().context("output directory not initialized")?;
-    let full = outdir.join(&path);
-    let full_canon = full
-        .canonicalize()
-        .or_else(|_| Ok::<PathBuf, anyhow::Error>(full.clone()))?;
-    let outdir_canon = outdir
-        .canonicalize()
-        .or_else(|_| Ok::<PathBuf, anyhow::Error>(outdir.clone()))?;
-    if !full_canon.starts_with(&outdir_canon) {
-        return Err(anyhow::anyhow!(
-            "write path escapes output directory: {path}"
-        ));
-    }
+    let full = checked_output_path(outdir, &path)?;
     if let Some(parent) = full.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -1379,18 +1384,7 @@ fn to_postcard_bytes(value: rune::runtime::Value) -> Result<Bytes, anyhow::Error
 #[rune::function]
 fn write_bytes(path: String, content: Bytes) -> Result<(), anyhow::Error> {
     let outdir = OUTDIR.get().context("output directory not initialized")?;
-    let full = outdir.join(&path);
-    let full_canon = full
-        .canonicalize()
-        .or_else(|_| Ok::<PathBuf, anyhow::Error>(full.clone()))?;
-    let outdir_canon = outdir
-        .canonicalize()
-        .or_else(|_| Ok::<PathBuf, anyhow::Error>(outdir.clone()))?;
-    if !full_canon.starts_with(&outdir_canon) {
-        return Err(anyhow::anyhow!(
-            "write path escapes output directory: {path}"
-        ));
-    }
+    let full = checked_output_path(outdir, &path)?;
     if let Some(parent) = full.parent() {
         std::fs::create_dir_all(parent)?;
     }
