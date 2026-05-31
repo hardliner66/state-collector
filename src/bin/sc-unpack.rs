@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use anyhow::Context;
 use clap::Parser;
 
 #[derive(Parser)]
@@ -16,7 +17,7 @@ fn main() -> anyhow::Result<()> {
         let stem = file
             .file_stem()
             .and_then(|s| s.to_str())
-            .unwrap_or("collected-state");
+            .context("invalid file stem")?;
         let default_dir = file.parent().unwrap_or(Path::new("."));
         let output_dir = output
             .clone()

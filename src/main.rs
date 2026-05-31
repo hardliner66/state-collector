@@ -2,6 +2,8 @@ use std::path::PathBuf;
 use std::process::exit;
 use std::sync::{Arc, OnceLock};
 
+use tempfile::TempDir;
+
 use anyhow::Context;
 use chrono::Local;
 use clap::Parser;
@@ -28,17 +30,13 @@ const ARCHIVE_EXT: &str = match option_env!("STATE_COLLECTOR_ARCHIVE_EXT") {
     None => "sc",
 };
 
-const TEMP_DIR_SUFFIX: &str = match option_env!("STATE_COLLECTOR_TEMP_DIR_SUFFIX") {
-    Some(suffix) => suffix,
-    None => "sc",
-};
-
 const ARCHIVE_PREFIX: &str = match option_env!("STATE_COLLECTOR_ARCHIVE_PREFIX") {
     Some(prefix) => prefix,
-    None => "collected-state",
+    None => "system-info",
 };
 
 static OUTDIR: OnceLock<PathBuf> = OnceLock::new();
+static TEMPDIR: OnceLock<TempDir> = OnceLock::new();
 
 const DEFAULT_SCRIPT: &str = include_str!("../examples/basic.rn");
 const OS_RELEASE_PATH: &str = "/etc/os-release";
@@ -103,11 +101,22 @@ fn uptime() -> Result<String, anyhow::Error> {
 }
 
 /// Write `content` to `path` relative to the output directory.
-/// Parent directories are created automatically.
+/// Parent directories are created automatically. Rejects absolute or escaping paths.
 #[rune::function]
 fn write(path: String, content: String) -> Result<(), anyhow::Error> {
     let outdir = OUTDIR.get().context("output directory not initialized")?;
     let full = outdir.join(&path);
+    let full_canon = full
+        .canonicalize()
+        .or_else(|_| Ok::<PathBuf, anyhow::Error>(full.clone()))?;
+    let outdir_canon = outdir
+        .canonicalize()
+        .or_else(|_| Ok::<PathBuf, anyhow::Error>(outdir.clone()))?;
+    if !full_canon.starts_with(&outdir_canon) {
+        return Err(anyhow::anyhow!(
+            "write path escapes output directory: {path}"
+        ));
+    }
     if let Some(parent) = full.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -123,11 +132,22 @@ fn to_postcard_bytes(value: rune::runtime::Value) -> Result<Bytes, anyhow::Error
 }
 
 /// Write binary `content` to `path` relative to the output directory.
-/// Parent directories are created automatically.
+/// Parent directories are created automatically. Rejects absolute or escaping paths.
 #[rune::function]
 fn write_bytes(path: String, content: Bytes) -> Result<(), anyhow::Error> {
     let outdir = OUTDIR.get().context("output directory not initialized")?;
     let full = outdir.join(&path);
+    let full_canon = full
+        .canonicalize()
+        .or_else(|_| Ok::<PathBuf, anyhow::Error>(full.clone()))?;
+    let outdir_canon = outdir
+        .canonicalize()
+        .or_else(|_| Ok::<PathBuf, anyhow::Error>(outdir.clone()))?;
+    if !full_canon.starts_with(&outdir_canon) {
+        return Err(anyhow::anyhow!(
+            "write path escapes output directory: {path}"
+        ));
+    }
     if let Some(parent) = full.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -217,9 +237,10 @@ async fn main() -> anyhow::Result<()> {
     let ts = Local::now().format("%Y%m%d_%H%M%S").to_string();
 
     // Temp directory that the script writes into
-    let tempdir = std::env::temp_dir().join(format!("{TEMP_DIR_SUFFIX}-{ts}"));
-    std::fs::create_dir_all(&tempdir)?;
-    OUTDIR.set(tempdir.clone()).ok();
+    let tempdir = tempfile::tempdir()?;
+    OUTDIR.set(tempdir.path().to_path_buf()).ok();
+    TEMPDIR.set(tempdir).ok();
+    let tempdir_path = OUTDIR.get().unwrap();
 
     // Build rune context and compile script
     let mut context = rune_modules::default_context()?;
@@ -268,12 +289,10 @@ async fn main() -> anyhow::Result<()> {
     let file = std::fs::File::create(output_path)?;
     let enc = flate2::write::GzEncoder::new(file, flate2::Compression::default());
     let mut archive = tar::Builder::new(enc);
-    archive.append_dir_all(".", &tempdir)?;
+    archive.append_dir_all(".", tempdir_path)?;
     archive.finish()?;
 
-    if let Err(e) = std::fs::remove_dir_all(&tempdir) {
-        eprintln!("warning: failed to clean up temp dir: {e}");
-    }
+    // TempDir will auto-clean on drop
 
     println!("Written to: {}", output_path.display());
     Ok(())

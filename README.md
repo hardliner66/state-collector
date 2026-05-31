@@ -167,8 +167,7 @@ The binary supports these optional compile-time environment variables:
 - `STATE_COLLECTOR_MODULE_NAME` (default: `sc`)
 - `STATE_COLLECTOR_LOG_PREFIX` (default: `[collector]`)
 - `STATE_COLLECTOR_ARCHIVE_EXT` (default: `sc`)
-- `STATE_COLLECTOR_TEMP_DIR_SUFFIX` (default: `sc`)
-- `STATE_COLLECTOR_ARCHIVE_PREFIX` (default: `collected-state`)
+- `STATE_COLLECTOR_ARCHIVE_PREFIX` (default: `system-info`)
 
 If unset, defaults are used.
 
