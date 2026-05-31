@@ -21,6 +21,7 @@ pub const ARCHIVE_PREFIX: &str = match option_env!("STATE_COLLECTOR_ARCHIVE_PREF
 pub const DEFAULT_SCRIPT_BASIC: &str = include_str!("../default-scripts/basic.rn");
 pub const DEFAULT_SCRIPT_JSON: &str = include_str!("../default-scripts/json.rn");
 pub const DEFAULT_SCRIPT_BINARY: &str = include_str!("../default-scripts/binary.rn");
+pub const DEFAULT_SCRIPT_RSN: &str = include_str!("../default-scripts/rsn.rn");
 
 pub const OS_RELEASE_PATH: &str = "/etc/os-release";
 pub const UPTIME_PATH: &str = "/proc/uptime";

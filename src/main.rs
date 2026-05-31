@@ -15,6 +15,7 @@ use rune::{
 
 use crate::constants::{
     ARCHIVE_EXT, ARCHIVE_PREFIX, DEFAULT_SCRIPT_BASIC, DEFAULT_SCRIPT_BINARY, DEFAULT_SCRIPT_JSON,
+    DEFAULT_SCRIPT_RSN,
 };
 
 static OUTDIR: OnceLock<PathBuf> = OnceLock::new();
@@ -26,6 +27,7 @@ enum ScriptType {
     Basic,
     Json,
     Binary,
+    Rsn,
     Custom {
         path: PathBuf,
     },
@@ -72,6 +74,7 @@ async fn main() -> anyhow::Result<()> {
         ScriptType::Basic => Source::memory(DEFAULT_SCRIPT_BASIC)?,
         ScriptType::Json => Source::memory(DEFAULT_SCRIPT_JSON)?,
         ScriptType::Binary => Source::memory(DEFAULT_SCRIPT_BINARY)?,
+        ScriptType::Rsn => Source::memory(DEFAULT_SCRIPT_RSN)?,
         ScriptType::Custom { path } => Source::from_path(path)?,
     };
 

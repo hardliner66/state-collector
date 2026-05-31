@@ -1,0 +1,9 @@
+// Collect system state and store it as structured RSN.
+// Usage:
+//   state-collector rsn
+
+pub async fn collect() {
+    sc::log(`starting collection at ${sc::timestamp()}`);
+    sc::write("state.rsn", sc::serialize_snapshot(sc::snapshot()?, Format::RsnPretty)?)?;
+    sc::log("RSN collection complete.");
+}

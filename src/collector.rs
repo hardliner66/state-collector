@@ -15,28 +15,30 @@ use crate::{
 
 // ── Primitive shared types ─────────────────────────────────────────────────
 
-#[derive(Any, Serialize, Deserialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone, Debug)]
 pub struct KeyValue {
     pub key: String,
     pub value: String,
 }
 
-#[derive(Any, Serialize, Deserialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone, Debug)]
 pub enum Format {
     #[rune(constructor)]
     Json,
     #[rune(constructor)]
     PrettyJson,
     #[rune(constructor)]
-    Idm,
+    Rsn,
+    #[rune(constructor)]
+    RsnPretty,
 }
 
-#[derive(Any, Serialize, Deserialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone, Debug)]
 pub struct TextLines {
     pub lines: Vec<String>,
 }
 
-#[derive(Any, Serialize, Deserialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone, Debug)]
 pub struct UptimeInfo {
     pub pretty: String,
     pub uptime_seconds: f64,
@@ -48,7 +50,7 @@ pub struct UptimeInfo {
 // ── Parsed structured types ────────────────────────────────────────────────
 
 /// One row from `free -b` output (Mem or Swap).
-#[derive(Any, Serialize, Deserialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone, Debug)]
 pub struct MemoryRow {
     pub label: String,
     pub total_bytes: u64,
@@ -60,7 +62,7 @@ pub struct MemoryRow {
 }
 
 /// One row from `df` output.
-#[derive(Any, Serialize, Deserialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone, Debug)]
 pub struct DfEntry {
     pub filesystem: String,
     pub size: String,
@@ -71,14 +73,14 @@ pub struct DfEntry {
 }
 
 /// One row from `du` output.
-#[derive(Any, Serialize, Deserialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone, Debug)]
 pub struct DiskUsage {
     pub size: String,
     pub path: String,
 }
 
 /// One block device from `lsblk -P` output.
-#[derive(Any, Serialize, Deserialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone, Debug)]
 pub struct BlockDevice {
     pub name: String,
     pub size: String,
@@ -90,7 +92,7 @@ pub struct BlockDevice {
 }
 
 /// One device from `lspci` output.
-#[derive(Any, Serialize, Deserialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone, Debug)]
 pub struct PciDevice {
     pub slot: String,
     pub class: String,
@@ -98,7 +100,7 @@ pub struct PciDevice {
 }
 
 /// One device from `lsusb` output.
-#[derive(Any, Serialize, Deserialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone, Debug)]
 pub struct UsbDevice {
     pub bus: u32,
     pub device: u32,
@@ -108,7 +110,7 @@ pub struct UsbDevice {
 }
 
 /// One process from `ps aux` output.
-#[derive(Any, Serialize, Deserialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone, Debug)]
 pub struct Process {
     pub user: String,
     pub pid: u32,
@@ -124,7 +126,7 @@ pub struct Process {
 }
 
 /// One socket from `netstat -an` output (internet connections only).
-#[derive(Any, Serialize, Deserialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone, Debug)]
 pub struct SocketEntry {
     pub proto: String,
     pub recv_q: u64,
@@ -135,7 +137,7 @@ pub struct SocketEntry {
 }
 
 /// One unit from `systemctl list-units` output.
-#[derive(Any, Serialize, Deserialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone, Debug)]
 pub struct SystemdUnit {
     pub unit: String,
     pub load: String,
@@ -145,7 +147,7 @@ pub struct SystemdUnit {
 }
 
 /// One entry from `mount` output.
-#[derive(Any, Serialize, Deserialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone, Debug)]
 pub struct MountEntry {
     pub device: String,
     pub mountpoint: String,
@@ -155,7 +157,7 @@ pub struct MountEntry {
 
 // ── Section structs ────────────────────────────────────────────────────────
 
-#[derive(Any, Serialize, Deserialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone, Debug)]
 pub struct HostSection {
     pub hostname: String,
     pub os_release: Vec<KeyValue>,
@@ -165,14 +167,14 @@ pub struct HostSection {
     pub locale: Vec<KeyValue>,
 }
 
-#[derive(Any, Serialize, Deserialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone, Debug)]
 pub struct ResourcesSection {
     pub uptime: UptimeInfo,
     pub memory: Vec<MemoryRow>,
     pub disk_root: Vec<DfEntry>,
 }
 
-#[derive(Any, Serialize, Deserialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone, Debug)]
 pub struct HardwareSection {
     pub memory: Vec<MemoryRow>,
     pub block_devices: Vec<BlockDevice>,
@@ -181,7 +183,7 @@ pub struct HardwareSection {
     pub usb_devices: Vec<UsbDevice>,
 }
 
-#[derive(Any, Serialize, Deserialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone, Debug)]
 pub struct SystemdStatusSection {
     pub services: Vec<SystemdUnit>,
     pub failed: TextLines,
@@ -190,7 +192,7 @@ pub struct SystemdStatusSection {
     pub jobs: TextLines,
 }
 
-#[derive(Any, Serialize, Deserialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone, Debug)]
 pub struct NetworkSection {
     pub ip_addr: TextLines,
     pub ip_route: TextLines,
@@ -199,7 +201,7 @@ pub struct NetworkSection {
     pub resolv_conf: TextLines,
 }
 
-#[derive(Any, Serialize, Deserialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone, Debug)]
 pub struct FilesystemSection {
     pub mounts: Vec<MountEntry>,
     pub findmnt: TextLines,
@@ -210,12 +212,12 @@ pub struct FilesystemSection {
     pub du_media_card: Vec<DiskUsage>,
 }
 
-#[derive(Any, Serialize, Deserialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone, Debug)]
 pub struct ProcessSection {
     pub processes: Vec<Process>,
 }
 
-#[derive(Any, Serialize, Deserialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone, Debug)]
 pub struct Snapshot {
     pub generated_at: String,
     pub collector_version: String,
@@ -1098,7 +1100,8 @@ pub fn serialize_snapshot(value: Value, format: Format) -> Result<String, anyhow
     match format {
         Format::Json => Ok(serde_json::to_string(&snapshot)?),
         Format::PrettyJson => Ok(serde_json::to_string_pretty(&snapshot)?),
-        Format::Idm => Ok(idm::to_string(&snapshot)?),
+        Format::Rsn => Ok(rsn::to_string(&snapshot)?),
+        Format::RsnPretty => Ok(rsn::to_string_pretty(&snapshot)?),
     }
 }
 
