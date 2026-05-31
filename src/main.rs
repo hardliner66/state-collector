@@ -52,7 +52,7 @@ async fn main() -> anyhow::Result<()> {
         output,
     }) = Cli::try_parse()
     else {
-        // disable usage and help text
+        eprintln!("error: invalid arguments");
         exit(1);
     };
 

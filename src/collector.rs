@@ -1,6 +1,7 @@
 use std::{
     path::PathBuf,
     process::{Command, Stdio},
+    sync::OnceLock,
 };
 
 use anyhow::Context;
@@ -928,7 +929,7 @@ fn render_mount_entries(title: &str, entries: &[MountEntry]) -> String {
 
 // ── Uptime / hostname ──────────────────────────────────────────────────────
 
-fn format_uptime(seconds: f64) -> String {
+pub(crate) fn format_uptime(seconds: f64) -> String {
     let total_seconds = seconds.max(0.0).floor() as u64;
     let days = total_seconds / 86_400;
     let hours = (total_seconds % 86_400) / 3_600;
@@ -1063,6 +1064,16 @@ fn snapshot_inner() -> anyhow::Result<Snapshot> {
     })
 }
 
+static SNAPSHOT_CACHE: OnceLock<Snapshot> = OnceLock::new();
+
+fn cached_snapshot() -> anyhow::Result<Snapshot> {
+    if let Some(snap) = SNAPSHOT_CACHE.get() {
+        return Ok(snap.clone());
+    }
+    let snap = snapshot_inner()?;
+    Ok(SNAPSHOT_CACHE.get_or_init(|| snap.clone()).clone())
+}
+
 fn summary_text_inner(snapshot: &Snapshot) -> String {
     let mut output = String::new();
     output.push_str("System State Dump\n");
@@ -1091,7 +1102,7 @@ fn summary_text_inner(snapshot: &Snapshot) -> String {
 
 #[rune::function]
 pub fn snapshot() -> Result<Snapshot, anyhow::Error> {
-    Ok(snapshot_inner()?)
+    cached_snapshot()
 }
 
 #[rune::function]
@@ -1124,9 +1135,9 @@ pub fn log_units() -> Result<Vec<String>, anyhow::Error> {
         "NetworkManager.service".to_string(),
         "sshd@.service".to_string(),
     ];
-    for su in parse_systemd_units() {
+    for su in &cached_snapshot()?.services {
         if !units.iter().any(|existing| existing == &su.unit) {
-            units.push(su.unit);
+            units.push(su.unit.clone());
         }
     }
     Ok(units)
@@ -1134,7 +1145,7 @@ pub fn log_units() -> Result<Vec<String>, anyhow::Error> {
 
 #[rune::function]
 pub fn resources_text() -> Result<String, anyhow::Error> {
-    let snapshot = snapshot_inner()?;
+    let snapshot = cached_snapshot()?;
     let mut output = String::new();
     output.push_str(&render_lines(
         "Resources: uptime",
@@ -1155,7 +1166,7 @@ pub fn resources_text() -> Result<String, anyhow::Error> {
 
 #[rune::function]
 pub fn sysinfo_text() -> Result<String, anyhow::Error> {
-    let snapshot = snapshot_inner()?;
+    let snapshot = cached_snapshot()?;
     let mut output = String::new();
     output.push_str(&render_kvs("OS release", &snapshot.host.os_release));
     output.push_str(&format!("Hostname: {}\n", snapshot.host.hostname));
@@ -1168,7 +1179,7 @@ pub fn sysinfo_text() -> Result<String, anyhow::Error> {
 
 #[rune::function]
 pub fn hardware_text() -> Result<String, anyhow::Error> {
-    let snapshot = snapshot_inner()?;
+    let snapshot = cached_snapshot()?;
     let mut output = String::new();
     output.push_str(&render_memory_rows("Memory", &snapshot.hardware.memory));
     output.push('\n');
@@ -1193,7 +1204,7 @@ pub fn hardware_text() -> Result<String, anyhow::Error> {
 
 #[rune::function]
 pub fn services_text() -> Result<String, anyhow::Error> {
-    let snapshot = snapshot_inner()?;
+    let snapshot = cached_snapshot()?;
     Ok(render_systemd_units(
         "systemctl list-units --type=service --all",
         &snapshot.services,
@@ -1202,7 +1213,7 @@ pub fn services_text() -> Result<String, anyhow::Error> {
 
 #[rune::function]
 pub fn systemd_status_text() -> Result<String, anyhow::Error> {
-    let snapshot = snapshot_inner()?;
+    let snapshot = cached_snapshot()?;
     let mut output = String::new();
     output.push_str(&render_lines(
         "systemctl --failed",
@@ -1225,7 +1236,7 @@ pub fn systemd_status_text() -> Result<String, anyhow::Error> {
 
 #[rune::function]
 pub fn network_text() -> Result<String, anyhow::Error> {
-    let snapshot = snapshot_inner()?;
+    let snapshot = cached_snapshot()?;
     let mut output = String::new();
     output.push_str(&render_lines("ip addr", &snapshot.network.ip_addr.lines));
     output.push_str(&render_lines("ip route", &snapshot.network.ip_route.lines));
@@ -1243,19 +1254,19 @@ pub fn network_text() -> Result<String, anyhow::Error> {
 
 #[rune::function]
 pub fn wifi_text() -> Result<String, anyhow::Error> {
-    let snapshot = snapshot_inner()?;
+    let snapshot = cached_snapshot()?;
     Ok(render_lines("nmcli dev wifi", &snapshot.wifi.lines))
 }
 
 #[rune::function]
 pub fn ports_text() -> Result<String, anyhow::Error> {
-    let snapshot = snapshot_inner()?;
+    let snapshot = cached_snapshot()?;
     Ok(render_socket_entries("netstat -an", &snapshot.ports))
 }
 
 #[rune::function]
 pub fn filesystems_text() -> Result<String, anyhow::Error> {
-    let snapshot = snapshot_inner()?;
+    let snapshot = cached_snapshot()?;
     let mut output = String::new();
     output.push_str(&render_mount_entries("mount", &snapshot.filesystems.mounts));
     output.push('\n');
@@ -1290,15 +1301,17 @@ pub fn filesystems_text() -> Result<String, anyhow::Error> {
 
 #[rune::function]
 pub fn processes_text() -> Result<String, anyhow::Error> {
-    let snapshot = snapshot_inner()?;
+    let snapshot = cached_snapshot()?;
     Ok(render_processes("ps aux", &snapshot.processes.processes))
 }
 
 #[rune::function]
 pub fn summary_text() -> Result<String, anyhow::Error> {
-    let snapshot = snapshot_inner()?;
+    let snapshot = cached_snapshot()?;
     Ok(summary_text_inner(&snapshot))
 }
+
+// ── Rune utility functions ─────────────────────────────────────────────────
 
 #[rune::function]
 pub(crate) fn version() -> &'static str {
@@ -1456,4 +1469,98 @@ pub fn module() -> Result<Module, ContextError> {
     m.function_meta(outdir)?;
     m.function_meta(timestamp)?;
     Ok(m)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn format_uptime_hours_only() {
+        assert_eq!(format_uptime(3661.0), "up 01:01:01");
+    }
+
+    #[test]
+    fn format_uptime_single_day() {
+        assert_eq!(format_uptime(90061.0), "up 1 day, 01:01:01");
+    }
+
+    #[test]
+    fn format_uptime_multiple_days() {
+        assert_eq!(format_uptime(176461.0), "up 2 days, 01:01:01");
+    }
+
+    #[test]
+    fn split_n_fields_captures_remainder_in_last() {
+        assert_eq!(split_n_fields("a b c d e", 3), vec!["a", "b", "c d e"]);
+    }
+
+    #[test]
+    fn split_n_fields_fewer_fields_than_n() {
+        assert_eq!(split_n_fields("a b", 5), vec!["a", "b"]);
+    }
+
+    #[test]
+    fn split_n_fields_preserves_spaces_in_command() {
+        let line = "user 123 0.5 1.0 1234 567 ? S 10:00 0:01 /usr/bin/cmd arg1 arg2";
+        let fields = split_n_fields(line, 11);
+        assert_eq!(fields.len(), 11);
+        assert_eq!(fields[10], "/usr/bin/cmd arg1 arg2");
+    }
+
+    #[test]
+    fn parse_lsblk_kv_line_extracts_all_fields() {
+        let line = r#"NAME="sda" SIZE="500G" TYPE="disk" FSTYPE="" LABEL="" UUID="" MOUNTPOINT="""#;
+        let pairs = parse_lsblk_kv_line(line);
+        let get = |key: &str| {
+            pairs
+                .iter()
+                .find(|(k, _)| k == key)
+                .map(|(_, v)| v.as_str())
+        };
+        assert_eq!(get("NAME"), Some("sda"));
+        assert_eq!(get("SIZE"), Some("500G"));
+        assert_eq!(get("TYPE"), Some("disk"));
+        assert_eq!(get("FSTYPE"), Some(""));
+        assert_eq!(get("UUID"), Some(""));
+    }
+
+    #[test]
+    fn key_values_equals_strips_quotes() {
+        let text = "PRETTY_NAME=\"Ubuntu 22.04\"\nVERSION_ID=22.04\n";
+        let kvs = key_values_equals(text);
+        assert_eq!(kvs.len(), 2);
+        assert_eq!(kvs[0].key, "PRETTY_NAME");
+        assert_eq!(kvs[0].value, "Ubuntu 22.04");
+        assert_eq!(kvs[1].key, "VERSION_ID");
+        assert_eq!(kvs[1].value, "22.04");
+    }
+
+    #[test]
+    fn key_values_equals_skips_empty_lines() {
+        let text = "\nKEY=value\n\n";
+        let kvs = key_values_equals(text);
+        assert_eq!(kvs.len(), 1);
+        assert_eq!(kvs[0].key, "KEY");
+        assert_eq!(kvs[0].value, "value");
+    }
+
+    #[test]
+    fn key_values_colon_trims_whitespace() {
+        let text = " Operating System: Ubuntu 22.04\n Kernel: Linux 5.15\n";
+        let kvs = key_values_colon(text);
+        assert_eq!(kvs.len(), 2);
+        assert_eq!(kvs[0].key, "Operating System");
+        assert_eq!(kvs[0].value, "Ubuntu 22.04");
+        assert_eq!(kvs[1].key, "Kernel");
+        assert_eq!(kvs[1].value, "Linux 5.15");
+    }
+
+    #[test]
+    fn key_values_colon_skips_lines_without_colon() {
+        let text = "no colon here\nkey: value\n";
+        let kvs = key_values_colon(text);
+        assert_eq!(kvs.len(), 1);
+        assert_eq!(kvs[0].key, "key");
+    }
 }
