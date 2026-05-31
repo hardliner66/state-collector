@@ -3,9 +3,7 @@
 mkdir -p tmp
 rm -rf tmp/*
 
-for file in examples/*.rn; do
-    filename=$(basename -- "$file")
-    filename="${filename%.*}"
-    cargo run --release -q -- examples/$filename.rn -o tmp/$filename.sc
-    cargo run --release -q --bin sc-unpack -- tmp/$filename.sc
+for type in basic binary json; do
+    cargo run --release -q -- $type -o tmp/$type.sc
+    cargo run --release -q --bin sc-unpack -- tmp/$type.sc
 done

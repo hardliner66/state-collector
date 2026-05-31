@@ -6,7 +6,7 @@ use tempfile::TempDir;
 
 use anyhow::Context;
 use chrono::Local;
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use postcard;
 mod collector;
 use rune::{
@@ -38,17 +38,32 @@ const ARCHIVE_PREFIX: &str = match option_env!("STATE_COLLECTOR_ARCHIVE_PREFIX")
 static OUTDIR: OnceLock<PathBuf> = OnceLock::new();
 static TEMPDIR: OnceLock<TempDir> = OnceLock::new();
 
-const DEFAULT_SCRIPT: &str = include_str!("../examples/basic.rn");
+const DEFAULT_SCRIPT_BASIC: &str = include_str!("../default-scripts/basic.rn");
+const DEFAULT_SCRIPT_JSON: &str = include_str!("../default-scripts/json.rn");
+const DEFAULT_SCRIPT_BINARY: &str = include_str!("../default-scripts/binary.rn");
+
 const OS_RELEASE_PATH: &str = "/etc/os-release";
 const UPTIME_PATH: &str = "/proc/uptime";
 
+#[derive(Subcommand, Default)]
+enum ScriptType {
+    #[default]
+    Basic,
+    Json,
+    Binary,
+    Custom {
+        path: PathBuf,
+    },
+}
+
 #[derive(Parser)]
 struct Cli {
-    /// Rune script defining the `collect` function
-    script: Option<PathBuf>,
     /// Output path for the .sc archive (default: ./collected-state-<timestamp>.sc)
-    #[arg(short, long)]
+    #[arg(global = true, short, long)]
     output: Option<PathBuf>,
+    /// What script to run (default: basic)
+    #[command(subcommand)]
+    script_type: Option<ScriptType>,
 }
 
 // ── Rune-exposed functions ────────────────────────────────────────────────────
@@ -229,7 +244,11 @@ pub fn module() -> Result<Module, ContextError> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let Ok(Cli { script, output }) = Cli::try_parse() else {
+    let Ok(Cli {
+        script_type,
+        output,
+    }) = Cli::try_parse()
+    else {
         // disable usage and help text
         exit(1);
     };
@@ -247,11 +266,15 @@ async fn main() -> anyhow::Result<()> {
     context.install(module()?)?;
 
     let mut sources = Sources::new();
-    if let Some(script) = script {
-        sources.insert(Source::from_path(&script)?)?;
-    } else {
-        sources.insert(Source::memory(DEFAULT_SCRIPT)?)?;
-    }
+
+    let source = match script_type.unwrap_or_default() {
+        ScriptType::Basic => Source::memory(DEFAULT_SCRIPT_BASIC)?,
+        ScriptType::Json => Source::memory(DEFAULT_SCRIPT_JSON)?,
+        ScriptType::Binary => Source::memory(DEFAULT_SCRIPT_BINARY)?,
+        ScriptType::Custom { path } => Source::from_path(path)?,
+    };
+
+    sources.insert(source)?;
 
     let mut diagnostics = Diagnostics::new();
     let result = rune::prepare(&mut sources)
