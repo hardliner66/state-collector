@@ -1,8 +1,8 @@
 // Collect system state from the local device.
 // Usage:
-//   state-collector                                  # use built-in script
-//   state-collector examples/basic.rn                # explicit script path
-//   state-collector --output /tmp/snapshot.sc        # custom output path
+//   state-collector                             # use built-in script
+//   state-collector basic.rn                    # explicit script path
+//   state-collector --output /tmp/snapshot.sc   # custom output path
 
 use process::{Command, Stdio};
 

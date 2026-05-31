@@ -1,24 +1,42 @@
-use std::process::{Command, Stdio};
+use std::{
+    path::PathBuf,
+    process::{Command, Stdio},
+};
 
 use anyhow::Context;
 use chrono::Local;
-use rune::Any;
-use serde::Serialize;
+use rune::{Any, ContextError, Module, Value, runtime::Bytes};
+use serde::{Deserialize, Serialize};
+
+use crate::{
+    OUTDIR,
+    constants::{LOG_PREFIX, MODULE_NAME, OS_RELEASE_PATH, UPTIME_PATH},
+};
 
 // ── Primitive shared types ─────────────────────────────────────────────────
 
-#[derive(Any, Serialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone)]
 pub struct KeyValue {
     pub key: String,
     pub value: String,
 }
 
-#[derive(Any, Serialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone)]
+pub enum Format {
+    #[rune(constructor)]
+    Json,
+    #[rune(constructor)]
+    PrettyJson,
+    #[rune(constructor)]
+    Idm,
+}
+
+#[derive(Any, Serialize, Deserialize, Clone)]
 pub struct TextLines {
     pub lines: Vec<String>,
 }
 
-#[derive(Any, Serialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone)]
 pub struct UptimeInfo {
     pub pretty: String,
     pub uptime_seconds: f64,
@@ -30,7 +48,7 @@ pub struct UptimeInfo {
 // ── Parsed structured types ────────────────────────────────────────────────
 
 /// One row from `free -b` output (Mem or Swap).
-#[derive(Any, Serialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone)]
 pub struct MemoryRow {
     pub label: String,
     pub total_bytes: u64,
@@ -42,7 +60,7 @@ pub struct MemoryRow {
 }
 
 /// One row from `df` output.
-#[derive(Any, Serialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone)]
 pub struct DfEntry {
     pub filesystem: String,
     pub size: String,
@@ -53,14 +71,14 @@ pub struct DfEntry {
 }
 
 /// One row from `du` output.
-#[derive(Any, Serialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone)]
 pub struct DiskUsage {
     pub size: String,
     pub path: String,
 }
 
 /// One block device from `lsblk -P` output.
-#[derive(Any, Serialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone)]
 pub struct BlockDevice {
     pub name: String,
     pub size: String,
@@ -72,7 +90,7 @@ pub struct BlockDevice {
 }
 
 /// One device from `lspci` output.
-#[derive(Any, Serialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone)]
 pub struct PciDevice {
     pub slot: String,
     pub class: String,
@@ -80,7 +98,7 @@ pub struct PciDevice {
 }
 
 /// One device from `lsusb` output.
-#[derive(Any, Serialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone)]
 pub struct UsbDevice {
     pub bus: u32,
     pub device: u32,
@@ -90,7 +108,7 @@ pub struct UsbDevice {
 }
 
 /// One process from `ps aux` output.
-#[derive(Any, Serialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone)]
 pub struct Process {
     pub user: String,
     pub pid: u32,
@@ -106,7 +124,7 @@ pub struct Process {
 }
 
 /// One socket from `netstat -an` output (internet connections only).
-#[derive(Any, Serialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone)]
 pub struct SocketEntry {
     pub proto: String,
     pub recv_q: u64,
@@ -117,7 +135,7 @@ pub struct SocketEntry {
 }
 
 /// One unit from `systemctl list-units` output.
-#[derive(Any, Serialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone)]
 pub struct SystemdUnit {
     pub unit: String,
     pub load: String,
@@ -127,7 +145,7 @@ pub struct SystemdUnit {
 }
 
 /// One entry from `mount` output.
-#[derive(Any, Serialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone)]
 pub struct MountEntry {
     pub device: String,
     pub mountpoint: String,
@@ -137,7 +155,7 @@ pub struct MountEntry {
 
 // ── Section structs ────────────────────────────────────────────────────────
 
-#[derive(Any, Serialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone)]
 pub struct HostSection {
     pub hostname: String,
     pub os_release: Vec<KeyValue>,
@@ -147,14 +165,14 @@ pub struct HostSection {
     pub locale: Vec<KeyValue>,
 }
 
-#[derive(Any, Serialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone)]
 pub struct ResourcesSection {
     pub uptime: UptimeInfo,
     pub memory: Vec<MemoryRow>,
     pub disk_root: Vec<DfEntry>,
 }
 
-#[derive(Any, Serialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone)]
 pub struct HardwareSection {
     pub memory: Vec<MemoryRow>,
     pub block_devices: Vec<BlockDevice>,
@@ -163,7 +181,7 @@ pub struct HardwareSection {
     pub usb_devices: Vec<UsbDevice>,
 }
 
-#[derive(Any, Serialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone)]
 pub struct SystemdStatusSection {
     pub services: Vec<SystemdUnit>,
     pub failed: TextLines,
@@ -172,7 +190,7 @@ pub struct SystemdStatusSection {
     pub jobs: TextLines,
 }
 
-#[derive(Any, Serialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone)]
 pub struct NetworkSection {
     pub ip_addr: TextLines,
     pub ip_route: TextLines,
@@ -181,7 +199,7 @@ pub struct NetworkSection {
     pub resolv_conf: TextLines,
 }
 
-#[derive(Any, Serialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone)]
 pub struct FilesystemSection {
     pub mounts: Vec<MountEntry>,
     pub findmnt: TextLines,
@@ -192,12 +210,12 @@ pub struct FilesystemSection {
     pub du_media_card: Vec<DiskUsage>,
 }
 
-#[derive(Any, Serialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone)]
 pub struct ProcessSection {
     pub processes: Vec<Process>,
 }
 
-#[derive(Any, Serialize, Clone)]
+#[derive(Any, Serialize, Deserialize, Clone)]
 pub struct Snapshot {
     pub generated_at: String,
     pub collector_version: String,
@@ -956,7 +974,7 @@ fn uptime_info() -> anyhow::Result<UptimeInfo> {
     })
 }
 
-fn hostname() -> anyhow::Result<String> {
+fn hostname_inner() -> anyhow::Result<String> {
     let mut buffer = vec![0u8; 256];
     let result =
         unsafe { libc::gethostname(buffer.as_mut_ptr() as *mut libc::c_char, buffer.len()) };
@@ -970,6 +988,11 @@ fn hostname() -> anyhow::Result<String> {
         .unwrap_or(buffer.len());
     buffer.truncate(nul);
     Ok(String::from_utf8(buffer)?)
+}
+
+#[rune::function]
+fn hostname() -> anyhow::Result<String> {
+    hostname_inner()
 }
 
 // ── Snapshot builder ───────────────────────────────────────────────────────
@@ -987,7 +1010,7 @@ fn snapshot_inner() -> anyhow::Result<Snapshot> {
             .to_string_lossy()
             .into_owned(),
         host: HostSection {
-            hostname: hostname()?,
+            hostname: hostname_inner()?,
             os_release: key_values_equals(&std::fs::read_to_string("/etc/os-release")?),
             uptime: uptime_info()?,
             hostnamectl: kv_or_error_colon("hostnamectl", &[]),
@@ -1066,19 +1089,23 @@ fn summary_text_inner(snapshot: &Snapshot) -> String {
 
 #[rune::function]
 pub fn snapshot() -> Result<Snapshot, anyhow::Error> {
-    snapshot_inner()
+    Ok(snapshot_inner()?)
 }
 
 #[rune::function]
-pub fn snapshot_json() -> Result<String, anyhow::Error> {
-    let snap = snapshot_inner()?;
-    Ok(serde_json::to_string_pretty(&snap)?)
+pub fn serialize_snapshot(value: Value, format: Format) -> Result<String, anyhow::Error> {
+    let snapshot: Snapshot = rune::from_value(value)?;
+    match format {
+        Format::Json => Ok(serde_json::to_string(&snapshot)?),
+        Format::PrettyJson => Ok(serde_json::to_string_pretty(&snapshot)?),
+        Format::Idm => Ok(idm::to_string(&snapshot)?),
+    }
 }
 
 #[rune::function]
-pub fn snapshot_bytes() -> Result<rune::runtime::Bytes, anyhow::Error> {
-    let snap = snapshot_inner()?;
-    let bytes = postcard::to_allocvec(&snap)?;
+pub fn snapshot_to_bytes(value: Value) -> Result<rune::runtime::Bytes, anyhow::Error> {
+    let snapshot: Snapshot = rune::from_value(value)?;
+    let bytes = postcard::to_allocvec(&snapshot)?;
     let mut rune_vec = rune::alloc::Vec::new();
     for byte in bytes {
         rune_vec
@@ -1268,4 +1295,162 @@ pub fn processes_text() -> Result<String, anyhow::Error> {
 pub fn summary_text() -> Result<String, anyhow::Error> {
     let snapshot = snapshot_inner()?;
     Ok(summary_text_inner(&snapshot))
+}
+
+#[rune::function]
+pub(crate) fn version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+
+#[rune::function]
+fn os_pretty_name() -> Result<String, anyhow::Error> {
+    let contents = std::fs::read_to_string(OS_RELEASE_PATH)?;
+
+    for line in contents.lines() {
+        if let Some(value) = line.strip_prefix("PRETTY_NAME=") {
+            return Ok(value.trim_matches('"').to_string());
+        }
+    }
+
+    Ok(String::new())
+}
+
+#[rune::function]
+fn uptime() -> Result<String, anyhow::Error> {
+    let contents = std::fs::read_to_string(UPTIME_PATH)?;
+    let seconds = contents
+        .split_whitespace()
+        .next()
+        .context("missing uptime seconds")?
+        .parse::<f64>()?;
+
+    Ok(format_uptime(seconds))
+}
+
+/// Write `content` to `path` relative to the output directory.
+/// Parent directories are created automatically. Rejects absolute or escaping paths.
+#[rune::function]
+fn write(path: String, content: String) -> Result<(), anyhow::Error> {
+    let outdir = OUTDIR.get().context("output directory not initialized")?;
+    let full = outdir.join(&path);
+    let full_canon = full
+        .canonicalize()
+        .or_else(|_| Ok::<PathBuf, anyhow::Error>(full.clone()))?;
+    let outdir_canon = outdir
+        .canonicalize()
+        .or_else(|_| Ok::<PathBuf, anyhow::Error>(outdir.clone()))?;
+    if !full_canon.starts_with(&outdir_canon) {
+        return Err(anyhow::anyhow!(
+            "write path escapes output directory: {path}"
+        ));
+    }
+    if let Some(parent) = full.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&full, content)?;
+    Ok(())
+}
+
+/// Serialize a Rune value to postcard binary encoding.
+#[rune::function]
+fn to_postcard_bytes(value: rune::runtime::Value) -> Result<Bytes, anyhow::Error> {
+    let raw = postcard::to_allocvec(&value)?;
+    Ok(Bytes::from_slice(raw).map_err(|e| anyhow::anyhow!("{e}"))?)
+}
+
+/// Write binary `content` to `path` relative to the output directory.
+/// Parent directories are created automatically. Rejects absolute or escaping paths.
+#[rune::function]
+fn write_bytes(path: String, content: Bytes) -> Result<(), anyhow::Error> {
+    let outdir = OUTDIR.get().context("output directory not initialized")?;
+    let full = outdir.join(&path);
+    let full_canon = full
+        .canonicalize()
+        .or_else(|_| Ok::<PathBuf, anyhow::Error>(full.clone()))?;
+    let outdir_canon = outdir
+        .canonicalize()
+        .or_else(|_| Ok::<PathBuf, anyhow::Error>(outdir.clone()))?;
+    if !full_canon.starts_with(&outdir_canon) {
+        return Err(anyhow::anyhow!(
+            "write path escapes output directory: {path}"
+        ));
+    }
+    if let Some(parent) = full.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&full, content.as_slice())?;
+    Ok(())
+}
+
+/// Print a progress message to stderr.
+#[rune::function]
+fn log(msg: String) {
+    eprintln!("{LOG_PREFIX} {msg}");
+}
+
+/// Return the absolute path of the output directory.
+#[rune::function]
+pub(crate) fn outdir() -> String {
+    OUTDIR
+        .get()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+/// Return the current local time as `YYYY-MM-DD HH:MM:SS`.
+#[rune::function]
+fn timestamp() -> String {
+    Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
+}
+
+pub fn module() -> Result<Module, ContextError> {
+    let mut m = Module::with_item([MODULE_NAME])?;
+    m.ty::<Format>()?;
+    m.ty::<KeyValue>()?;
+    m.ty::<TextLines>()?;
+    m.ty::<UptimeInfo>()?;
+    m.ty::<MemoryRow>()?;
+    m.ty::<DfEntry>()?;
+    m.ty::<DiskUsage>()?;
+    m.ty::<BlockDevice>()?;
+    m.ty::<PciDevice>()?;
+    m.ty::<UsbDevice>()?;
+    m.ty::<Process>()?;
+    m.ty::<SocketEntry>()?;
+    m.ty::<SystemdUnit>()?;
+    m.ty::<MountEntry>()?;
+    m.ty::<HostSection>()?;
+    m.ty::<ResourcesSection>()?;
+    m.ty::<HardwareSection>()?;
+    m.ty::<SystemdStatusSection>()?;
+    m.ty::<NetworkSection>()?;
+    m.ty::<FilesystemSection>()?;
+    m.ty::<ProcessSection>()?;
+    m.ty::<Snapshot>()?;
+    m.function_meta(version)?;
+    m.function_meta(hostname)?;
+    m.function_meta(os_pretty_name)?;
+    m.function_meta(uptime)?;
+    m.function_meta(snapshot)?;
+    m.function_meta(serialize_snapshot)?;
+    m.function_meta(snapshot_to_bytes)?;
+    m.function_meta(log_units)?;
+    m.function_meta(resources_text)?;
+    m.function_meta(sysinfo_text)?;
+    m.function_meta(hardware_text)?;
+    m.function_meta(services_text)?;
+    m.function_meta(systemd_status_text)?;
+    m.function_meta(network_text)?;
+    m.function_meta(wifi_text)?;
+    m.function_meta(ports_text)?;
+    m.function_meta(filesystems_text)?;
+    m.function_meta(processes_text)?;
+    m.function_meta(summary_text)?;
+    m.function_meta(write)?;
+    m.function_meta(to_postcard_bytes)?;
+    m.function_meta(write_bytes)?;
+    m.function_meta(log)?;
+    m.function_meta(outdir)?;
+    m.function_meta(timestamp)?;
+    Ok(m)
 }

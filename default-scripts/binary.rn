@@ -1,10 +1,10 @@
-// Collect system state and store it in a binary-encoded file.
+// Collect system state and store it in a postcard-encoded binary file.
 // Usage:
-//   state-collector examples/binary.rn
+//   state-collector binary
 
 pub async fn collect() {
     sc::log(`starting binary collection at ${sc::timestamp()}`);
-    sc::log("  collecting structured snapshot...");
-    sc::write_bytes("state.bin", sc::snapshot_bytes()?)?;
+    let snapshot = sc::snapshot()?;
+    sc::write_bytes("state.bin", sc::snapshot_to_bytes(snapshot)?)?;
     sc::log("binary collection complete.");
 }

@@ -1,9 +1,9 @@
 // Collect system state and store it as structured JSON.
 // Usage:
-//   state-collector examples/json.rn
+//   state-collector json
 
 pub async fn collect() {
-    sc::log(`starting JSON collection at ${sc::timestamp()}`);
-    sc::write("state.json", sc::snapshot_json()?)?;
+    sc::log(`starting collection at ${sc::timestamp()}`);
+    sc::write("state.json", sc::serialize_snapshot(sc::snapshot()?, Format::PrettyJson)?)?;
     sc::log("JSON collection complete.");
 }

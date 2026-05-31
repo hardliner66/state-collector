@@ -18,3 +18,4 @@ rune-modules = { version = "0.14.2", features = ["full"] }
 tar = "0.4.46"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 tempfile = "3.10.1"
+idm = "0.4.4"
